@@ -415,31 +415,40 @@ body {
 @media print {
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
-  body { background: #fff; font-size: 11pt; }
+  /* A4 기준 렌더링 강제 — 모바일 브라우저가 좁은 뷰포트로 축소하는 것 방지 */
+  html { width: 210mm; }
+
+  body { background: #fff; font-size: 12pt; width: 210mm; }
 
   .no-print { display: none !important; }
 
-  .doc-container { margin: 0; padding: 0; max-width: none; }
+  .doc-container { margin: 0; padding: 0; max-width: none; width: 100%; }
 
   .doc-page {
     box-shadow: none; padding: 0 10mm 18mm;
     min-height: 0; page-break-after: always;
-    border-radius: 0;
+    border-radius: 0; width: 100%;
   }
   .scroll-x  { overflow: visible !important; }
-  .daily-wrap, .hourly-wrap { overflow: visible; }
+  .daily-wrap { overflow: visible; }
   .mobile-bar { display: none !important; }
+
+  /* 시간별 예보 테이블은 인쇄 시 숨김 (가로 길이 때문에 전체 축소 발생) */
+  .date-tabs  { display: none !important; }
+  .hourly-wrap { display: none !important; }
+  .fcst-top   { display: none !important; }
 
   .doc-title { font-size: 18pt; margin-bottom: 12pt; letter-spacing: 8pt; }
 
   /* 섹션 본문 */
-  .sec-hd  { font-size: 11pt; }
-  .it-row  { font-size: 11pt; }
-  .it-lbl  { font-size: 11pt; }
-  .it-sub  { font-size: 11pt; }
+  .sec-hd  { font-size: 12pt; }
+  .it-row  { font-size: 12pt; }
+  .it-lbl  { font-size: 12pt; min-width: 130px; }
+  .it-sub  { font-size: 12pt; }
+  .it-val  { font-size: 12pt; }
 
-  .wtbl, .htbl { font-size: 9pt; }
-  .wi { font-size: 11pt; }
+  .wtbl, .htbl { font-size: 9.5pt; }
+  .wi { font-size: 12pt; }
 
   .fcst-box { margin: 8pt 0; }
 
