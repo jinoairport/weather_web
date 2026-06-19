@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>김해공항 기상정보</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+
+  <!-- ===== 웹 전용 컨트롤 바 (인쇄 시 숨김) ===== -->
+  <div class="no-print control-bar">
+    <div class="ctrl-logo">
+      <div class="ctrl-title">김해공항 기상정보 시스템</div>
+      <div class="ctrl-sub">대저2동 기준 &nbsp;·&nbsp; <span id="last-update">로딩 중...</span></div>
+    </div>
+    <div class="ctrl-center">
+      <div class="mode-toggle">
+        <button id="btn-normal" class="mode-btn active" onclick="setMode('normal')">일반</button>
+        <button id="btn-rain"   class="mode-btn"        onclick="setMode('rain')">강우</button>
+      </div>
+    </div>
+    <div class="ctrl-actions">
+      <button class="act-btn" onclick="refreshData()">↺ 새로고침</button>
+      <button class="act-btn primary" onclick="window.print()">🖨 PDF 출력</button>
+      <button class="act-btn" onclick="showQR()">📱 모바일</button>
+      <button class="act-btn" onclick="toggleSettings()">⚙ 설정</button>
+    </div>
+  </div>
+
+  <!-- ===== 설정 패널 ===== -->
+  <div id="settings-panel" class="no-print settings-panel" style="display:none">
+    <div class="sett-inner">
+      <div class="sett-title">설정</div>
+      <div class="sett-row">
+        <label>기상청 오픈API 서비스키</label>
+        <input type="text" id="inp-apikey" placeholder="발급된 인증키 입력">
+      </div>
+      <div class="sett-row">
+        <label>폭염영향 행 표시</label>
+        <select id="inp-dam">
+          <option value="show">표시</option>
+          <option value="hide">숨김</option>
+        </select>
+      </div>
+      <div class="sett-actions">
+        <button class="act-btn primary" onclick="saveSettings()">저장</button>
+        <button class="act-btn" onclick="toggleSettings()">닫기</button>
+      </div>
+      <div class="sett-hint">API키 발급: <strong>data.go.kr</strong> → '기상청_단기예보 조회서비스' 신청<br>
+        대저2동 격자좌표: nx=96, ny=76</div>
+    </div>
+  </div>
+
+  <!-- ===== 모바일 하단 고정 바 ===== -->
+  <div class="no-print mobile-bar">
+    <button class="mb-refresh" onclick="refreshData()" title="새로고침">↺</button>
+    <div class="mode-toggle">
+      <button id="mb-btn-normal" class="mode-btn active" onclick="setMode('normal')">일반</button>
+      <button id="mb-btn-rain"   class="mode-btn"        onclick="setMode('rain')">강우</button>
+    </div>
+    <button class="mb-print" onclick="window.print()">🖨 출력</button>
+  </div>
+
+  <!-- ===== QR 모달 ===== -->
+  <div id="qr-modal" class="no-print qr-modal" style="display:none" onclick="this.style.display='none'">
+    <div class="qr-box" onclick="event.stopPropagation()">
+      <div class="qr-title">📱 모바일 접속</div>
+      <div class="qr-hint">같은 Wi-Fi에서 스캔하세요</div>
+      <div id="qr-code"></div>
+      <div class="qr-url" id="qr-url-text"></div>
+      <button class="act-btn" style="margin-top:10px" onclick="document.getElementById('qr-modal').style.display='none'">닫기</button>
+    </div>
+  </div>
+
+  <!-- ===== 문서 영역 (인쇄 대상) ===== -->
+  <div class="doc-container">
+    <div class="doc-page" id="doc-page">
+
+      <!-- 문서 헤더 -->
+      <div class="doc-head">
+        <span class="d-dept">김해공항 토목부</span>
+        <span class="d-date" id="doc-date"></span>
+      </div>
+
+      <!-- 제목 -->
+      <h1 class="doc-title">김해공항 기상정보</h1>
+
+      <!-- ■ 일반 모드 요약 -->
+      <div id="sec-normal">
+        <div class="doc-sec">
+          <div class="sec-hd" id="sec-normal-title">□ 주말 ('26. 6. 13. ~ 6. 14.) 기상예보</div>
+          <div class="sec-body">
+            <div class="it-row">
+              <span class="it-lbl">ㅇ 강수량</span>
+              <span class="it-sep">:</span>
+              <span class="it-val ce" id="v-rainfall" contenteditable="true">없음</span>
+            </div>
+            <div class="it-row">
+              <span class="it-lbl">ㅇ 기&nbsp;온</span>
+              <span class="it-sep">:</span>
+              <span class="it-val">최저 <span class="ce" id="v-tmin" contenteditable="true">17</span>℃ &nbsp;/&nbsp; 최고 <span class="ce" id="v-tmax" contenteditable="true">30</span>℃</span>
+            </div>
+            <div class="it-row">
+              <span class="it-lbl">ㅇ 특&nbsp;보</span>
+              <span class="it-sep">:</span>
+              <span class="it-val ce" id="v-alert" contenteditable="true">해당없음</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ■ 강우 모드 요약 -->
+      <div id="sec-rain" style="display:none">
+        <div class="doc-sec">
+          <div class="sec-hd">□ 기상개황</div>
+          <div class="sec-body">
+            <div class="it-row">
+              <span class="it-lbl">ㅇ 누적강수량</span>
+              <span class="it-sub">&nbsp;(<span class="ce" id="v-rain-day" contenteditable="true">1일</span>)</span>
+              <span class="it-sep">:</span>
+              <span class="it-val ce" id="v-accum" contenteditable="true">없음</span>
+            </div>
+            <div class="it-row">
+              <span class="it-lbl">ㅇ 예상강수량</span>
+              <span class="it-sub">&nbsp;(<span class="ce" id="v-rain-period" contenteditable="true">1~2일</span>)</span>
+              <span class="it-sep">:</span>
+              <span class="it-val"><span class="ce" id="v-expected" contenteditable="true">20~60mm</span>&nbsp;<span class="ce" id="v-src" contenteditable="true">(중앙기상대)</span></span>
+            </div>
+            <div class="it-row indent-val">
+              <span class="it-val">*<span class="inline-edit" id="v-expected-sub" contenteditable="true">20~30mm</span> (공군기상대)</span>
+            </div>
+            <div class="it-row">
+              <span class="it-lbl">ㅇ 집중강수시간대</span>
+              <span class="it-sep">:</span>
+              <span class="it-val ce" id="v-intense" contenteditable="true">1일(월) 22시 ~ 2일(화) 06시(30mm)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ■ 예보 테이블 박스 -->
+      <div class="fcst-box">
+
+        <!-- 상단 탭 -->
+        <div class="fcst-top no-print">
+          <div class="fcst-tabs">
+            <span class="fcst-tab-label">시간별 예보</span>
+            <button id="tab-3h" class="ftab active" onclick="setHourlyStep(3)">3시간 간격</button>
+            <button id="tab-1h" class="ftab" onclick="setHourlyStep(1)">1시간 간격</button>
+            <span class="tab-hint">최근발표시각: <span id="base-time-display">-</span></span>
+          </div>
+        </div>
+
+        <!-- 날짜별 10일 예보 -->
+        <div class="daily-wrap">
+          <div class="scroll-x">
+            <table id="daily-tbl" class="wtbl"></table>
+          </div>
+        </div>
+        <div class="fcst-divider"></div>
+
+        <!-- 날짜 탭 (시간별) -->
+        <div id="date-tabs" class="date-tabs"></div>
+
+        <!-- 시간별 예보 -->
+        <div class="hourly-wrap">
+          <div class="scroll-x" id="hourly-scroll">
+            <table id="hourly-tbl" class="wtbl htbl"></table>
+          </div>
+        </div>
+
+      </div><!-- /.fcst-box -->
+
+      <!-- ■ 강우 모드: 특보 + 조치사항 -->
+      <div id="sec-rain-extra" style="display:none">
+        <div class="doc-sec">
+          <div class="sec-hd">□ 특보사항 : <span class="ce" id="v-special" contenteditable="true">호우예비특보(6.2. 00~06시)</span></div>
+        </div>
+        <div class="doc-sec">
+          <div class="sec-hd">□ 조치사항</div>
+          <div class="sec-body" id="measures-list">
+            <div class="it-row">
+              <span class="it-bull">ㅇ</span>
+              <span class="it-val">녹산·맥도펌프장 수위조절 요청 (<span class="inline-edit" id="v-pump-time" contenteditable="true">'26.6.1 20시</span> 사전배수 완료 예정)</span>
+            </div>
+            <div class="it-row">
+              <span class="it-bull">ㅇ</span>
+              <span class="it-val ce" contenteditable="true">A/S 및 L/S 배수로 점검 및 청소</span>
+            </div>
+            <div class="it-row">
+              <span class="it-bull">ㅇ</span>
+              <span class="it-val ce" contenteditable="true">비근무시간 호우경보 발생대비 상황근무자 편성(공항운영센터)</span>
+            </div>
+          </div>
+          <div class="no-print" style="margin-top:6px">
+            <button class="act-btn small" onclick="addMeasure()">+ 조치사항 추가</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 문서 푸터 -->
+      <div class="doc-foot">
+        <div class="foot-dept">김해공항 토목부</div>
+      </div>
+
+    </div><!-- /.doc-page -->
+  </div><!-- /.doc-container -->
+
+  <script src="js/apikey.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

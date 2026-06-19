@@ -1,0 +1,463 @@
+/* ===================================================
+   김해공항 기상정보 시스템 — 스타일시트
+   =================================================== */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Malgun Gothic', '맑은 고딕', 'Apple SD Gothic Neo', sans-serif;
+  font-size: 13px;
+  background: #eef1f6;
+  color: #1a1a1a;
+}
+
+/* ===================== 컨트롤 바 ===================== */
+.control-bar {
+  position: sticky; top: 0; z-index: 200;
+  background: #162032;
+  color: #fff;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 20px;
+  box-shadow: 0 2px 10px rgba(0,0,0,.4);
+  gap: 12px;
+}
+.ctrl-title { font-size: 15px; font-weight: 700; }
+.ctrl-sub   { font-size: 11px; color: #9ab; margin-top: 2px; }
+
+.mode-toggle { display: flex; background: #0b1523; border-radius: 6px; padding: 3px; gap: 2px; }
+.mode-btn {
+  padding: 5px 18px; border: none; background: transparent; color: #9ab;
+  cursor: pointer; border-radius: 4px; font-size: 13px; font-family: inherit; font-weight: 600;
+  transition: background .2s, color .2s;
+}
+.mode-btn.active { background: #2667cc; color: #fff; }
+
+.ctrl-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.act-btn {
+  padding: 5px 13px; border: 1px solid #445; background: transparent; color: #cde;
+  cursor: pointer; border-radius: 4px; font-size: 12px; font-family: inherit;
+  transition: background .2s;
+  white-space: nowrap;
+}
+.act-btn:hover { background: rgba(255,255,255,.1); }
+.act-btn.primary { background: #2667cc; border-color: #2667cc; color: #fff; }
+.act-btn.primary:hover { background: #1a55b8; }
+.act-btn.small { padding: 3px 9px; font-size: 11px; color: #445; border-color: #aab; }
+
+/* ===================== 설정 패널 ===================== */
+.settings-panel {
+  background: #1e2d42; color: #dde; padding: 14px 22px;
+  border-bottom: 2px solid #2667cc;
+}
+.sett-title { font-size: 14px; font-weight: 700; margin-bottom: 10px; }
+.sett-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.sett-row label { width: 180px; font-size: 12px; color: #9ab; }
+.sett-row input, .sett-row select {
+  flex: 1; max-width: 420px; padding: 5px 9px;
+  border: 1px solid #445; background: #0f1e30; color: #dde;
+  border-radius: 4px; font-size: 12px;
+}
+.sett-actions { display: flex; gap: 8px; margin-top: 10px; }
+.sett-hint { margin-top: 8px; font-size: 10px; color: #789; line-height: 1.6; }
+
+/* ===================== 문서 컨테이너 ===================== */
+.doc-container {
+  max-width: 900px;
+  margin: 22px auto 40px;
+  padding: 0 16px;
+}
+.doc-page {
+  background: #fff;
+  padding: 30px 42px 70px;
+  box-shadow: 0 4px 18px rgba(0,0,0,.18);
+  position: relative;
+  min-height: 270mm;
+  color: #000;
+  font-size: 12px;
+}
+
+/* ===================== 문서 헤더 ===================== */
+.doc-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: 10px; font-size: 12px; color: #000;
+}
+.d-dept { font-weight: 700; }
+.d-date { font-size: 12px; }
+
+/* ===================== 문서 제목 ===================== */
+.doc-title {
+  text-align: center;
+  font-size: 26px; font-weight: 900;
+  text-decoration: underline;
+  margin-bottom: 24px; margin-top: 8px;
+  letter-spacing: 10px;
+  color: #000;
+}
+
+/* ===================== 섹션 ===================== */
+.doc-sec { margin-bottom: 16px; }
+.sec-hd  { font-size: 13px; font-weight: 700; margin-bottom: 6px; color: #000; }
+.sec-body { padding-left: 22px; }
+
+.it-row {
+  display: flex; align-items: baseline;
+  margin-bottom: 8px; font-size: 13px; gap: 0; color: #000;
+  line-height: 1.7;
+}
+.it-lbl { min-width: 130px; font-weight: 400; white-space: nowrap; letter-spacing: 0; color: #000; }
+.it-sub  { color: #000; white-space: nowrap; font-size: 13px; }
+.it-sep  { margin: 0 6px; }
+.it-val  { flex: 1; color: #000; }
+.it-bull { margin-right: 6px; }
+.indent2 { padding-left: 136px; }
+/* 값 위치부터 들여쓰기 (예상강수량 두 번째 줄) */
+.indent-val { padding-left: 136px; }
+
+/* contenteditable 스타일 */
+.ce { border-bottom: 1px dashed #bbb; min-width: 30px; display: inline; }
+.ce:focus { outline: 2px dashed #2667cc; outline-offset: 2px; border-radius: 2px; }
+[contenteditable="true"] { border-bottom: 1px dashed #bbb; min-width: 30px; }
+[contenteditable="true"]:focus { outline: 2px dashed #2667cc; outline-offset: 2px; border-radius: 2px; }
+
+/* ===================== 예보 박스 ===================== */
+.fcst-box {
+  border: 1px solid #C0D4EC; margin: 14px 0 10px; font-size: 11px;
+}
+
+.fcst-top {
+  background: #EAF2FB; padding: 6px 10px; border-bottom: 1px solid #C0D4EC;
+}
+.fcst-tabs { display: flex; align-items: center; gap: 6px; }
+.fcst-tab-label { font-weight: 700; font-size: 11px; margin-right: 4px; }
+.ftab {
+  padding: 2px 9px; border: 1px solid #bbb; background: #fff;
+  cursor: pointer; border-radius: 3px; font-size: 11px; font-family: inherit;
+}
+.ftab.active { background: #2667cc; color: #fff; border-color: #2667cc; }
+.tab-hint { margin-left: auto; font-size: 10px; color: #888; }
+
+.fcst-divider { height: 1px; background: #C0D4EC; }
+
+/* ===================== 공통 테이블 — 날씨누리 색상 ===================== */
+.wtbl {
+  width: 100%; border-collapse: collapse; font-size: 11px;
+  table-layout: fixed;
+  border: 1px solid #C0D4EC;
+}
+.wtbl th, .wtbl td {
+  border: 1px solid #D0DFF0; text-align: center;
+  padding: 3px 2px; vertical-align: middle;
+  white-space: nowrap; overflow: hidden;
+}
+.wtbl .rh {
+  background: #E2EEF8; font-weight: 700; font-size: 10px;
+  text-align: center; width: 52px; min-width: 52px;
+  border-right: 1px solid #B8CEEA; color: #1a3870;
+}
+
+/* ===================== 날짜별 10일 예보 ===================== */
+.daily-wrap { overflow-x: auto; }
+.scroll-x   { overflow-x: auto; }
+
+.dtbl-date {
+  background: #C8DDEF; font-size: 10px; font-weight: 700; color: #1a3870;
+}
+.dtbl-date.today    { background: #1E5CB4; color: #fff; }
+.dtbl-date.tomorrow { background: #3B78D0; color: #fff; }
+.dtbl-date.morae    { background: #6099DC; color: #fff; }
+
+.dtbl-sess { background: #E8F3FC; font-size: 9px; color: #3a5a90; }
+
+/* 날씨 아이콘 셀 */
+.wi { font-size: 15px; line-height: 1; }
+.wi-s  { color: #e87020; }
+.wi-pc { color: #e89020; }
+.wi-mc { color: #778899; }
+.wi-ov { color: #556; }
+.wi-rn { color: #1a6ec0; }
+.wi-sn { color: #5599cc; }
+.wi-sh { color: #0a4fa0; }
+
+/* 기온 */
+.tmp-minmax { font-size: 10px; }
+.t-min { color: #1565C0; font-weight: 700; }
+.t-max { color: #C62828; font-weight: 700; }
+
+/* 강수확률 */
+.pop-cell { color: #1a6ec0; font-size: 10px; font-weight: 700; }
+.pop-none { color: #aaa; }
+
+/* ===================== 날짜 탭 (시간별) ===================== */
+.date-tabs {
+  display: flex; background: #EAF2FB;
+  border-top: 1px solid #C0D4EC; border-bottom: 1px solid #C0D4EC;
+}
+.dtab {
+  padding: 4px 12px; font-size: 11px; font-weight: 700;
+  border-right: 1px solid #C0D4EC; cursor: pointer; color: #1a3870;
+}
+.dtab.active { background: #1E5CB4; color: #fff; }
+
+/* ===================== 시간별 예보 테이블 — 날씨누리 ===================== */
+.htbl .time-cell {
+  font-size: 10px; font-weight: 700;
+  background: #C8DDEF; color: #1a3870;
+}
+.htbl .dg-hd {
+  background: #C8DDEF; font-weight: 700; font-size: 10px; color: #1a3870;
+  border-left: 2px solid #1E5CB4;
+}
+
+/* 온도 그래프 행 */
+.tmp-graph-row td { padding: 0; height: 56px; border-bottom: none; border-top: none; }
+.tmp-graph-container {
+  position: relative; width: 100%; height: 56px; overflow: visible;
+}
+.tmp-graph-svg { width: 100%; height: 56px; overflow: visible; display: block; }
+
+.tmp-val-row td { border-top: none; padding: 2px; font-size: 10px; font-weight: 700; }
+
+/* 강수량 */
+.pcp-pos { color: #1a6ec0; }
+.pcp-trace { color: #aaa; }
+.pcp-none  { color: #aaa; }
+
+/* 강수강도 */
+.int-none  { color: #aaa; font-size: 9px; }
+.int-light { color: #5599dd; font-size: 9px; }
+.int-mod   { color: #1a6ec0; font-size: 9px; font-weight: 700; }
+.int-heavy { color: #0033a0; font-size: 9px; font-weight: 700; }
+.int-ext   { color: #7b0000; font-size: 9px; font-weight: 700; }
+
+/* 바람 */
+.wind-arrow {
+  display: inline-block; font-size: 12px;
+  transform-origin: center;
+  transition: transform .3s;
+}
+.wstr { font-size: 9px; color: #444; }
+
+/* 폭염영향 */
+.dam-cell { font-size: 9px; color: #888; }
+
+/* 날짜별 예보 주말색 */
+.dtbl-date.sat  { color: #1a6ec0; } /* 토요일: 파랑 */
+.dtbl-date.sun  { color: #cc2200; } /* 일요일: 빨강 */
+
+/* 시간별 날짜+최저최고 헤더 */
+.day-stat-row td { background: #EAF3FC; border-bottom: 1px solid #C0D4EC; }
+.day-stat-cell { text-align: left; padding: 4px 8px; font-size: 10px; }
+.day-stat-badge { background: #1E5CB4; color: white; border-radius: 3px; padding: 1px 6px; font-size: 10px; font-weight: 700; margin-right: 6px; }
+.day-stat-text  { font-size: 10px; color: #1a3870; font-weight: 600; }
+
+/* 폭염영향 바 */
+.heat-none    { background: transparent; color: #aaa; }
+.heat-concern { background: #FFF176; color: #555; font-size: 9px; font-weight: 700; }
+.heat-caution { background: #FFB74D; color: white; font-size: 9px; font-weight: 700; }
+.heat-warning { background: #E53935; color: white; font-size: 9px; font-weight: 700; }
+
+/* 강수량 3시간 간격 sub-cell — 좌우 3등분 */
+.pcp-sub-cell { padding: 0 !important; white-space: nowrap; }
+.pcp-sub-val {
+  display: inline-block;
+  width: 33.33%;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.5;
+  vertical-align: middle;
+  padding: 1px 0;
+}
+.pcp-sub-val:not(:last-child) { border-right: 1px dotted #ddd; }
+
+/* 인라인 편집 필드 (공군기상대, 펌프장 시간) */
+.inline-edit {
+  border-bottom: 2px solid #2667cc;
+  min-width: 50px;
+  display: inline-block;
+  padding: 0 3px;
+  cursor: text;
+  color: #1a3a6e;
+  font-weight: 600;
+}
+.inline-edit:focus { outline: 2px dashed #2667cc; outline-offset: 1px; border-radius: 2px; }
+
+/* 공군기상대 라벨 */
+.it-lbl2 { font-size: 11px; color: #555; margin-right: 6px; white-space: nowrap; }
+
+/* ===================== QR 모달 ===================== */
+.qr-modal {
+  position: fixed; inset: 0; z-index: 999;
+  background: rgba(0,0,0,.55);
+  display: flex; align-items: center; justify-content: center;
+}
+.qr-box {
+  background: #fff; border-radius: 12px; padding: 24px 28px;
+  text-align: center; box-shadow: 0 8px 32px rgba(0,0,0,.35);
+}
+.qr-title { font-size: 16px; font-weight: 700; margin-bottom: 4px; color: #1a2a42; }
+.qr-hint  { font-size: 11px; color: #888; margin-bottom: 14px; }
+.qr-url   { font-size: 11px; color: #555; margin-top: 10px; word-break: break-all; }
+#qr-code canvas, #qr-code img { border-radius: 6px; }
+
+/* ===================== 강우 추가 섹션 ===================== */
+#sec-rain-extra .sec-hd { margin-top: 4px; }
+
+/* ===================== 문서 푸터 ===================== */
+.doc-foot {
+  position: absolute; bottom: 22px; left: 0; right: 0;
+  text-align: center;
+}
+.foot-dept { font-size: 22px; font-weight: 900; letter-spacing: 12px; }
+
+/* ===================== 모바일 반응형 ===================== */
+@media (max-width: 640px) {
+
+  /* ── 컨트롤 바 ── */
+  .control-bar {
+    flex-wrap: wrap;
+    padding: 10px 14px 8px;
+    gap: 8px;
+  }
+  .ctrl-logo { width: 100%; }
+  .ctrl-title { font-size: 15px; }
+  .ctrl-sub   { font-size: 11px; }
+  .ctrl-center { width: 100%; justify-content: center; display: flex; }
+  .ctrl-actions { width: 100%; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
+  .act-btn  { padding: 8px 14px; font-size: 13px; min-height: 38px; }
+  .mode-btn { padding: 7px 20px; font-size: 14px; }
+
+  /* ── 설정 패널 ── */
+  .settings-panel { padding: 14px 16px; }
+  .sett-row { flex-wrap: wrap; }
+  .sett-row label { width: 100%; margin-bottom: 4px; }
+  .sett-row input, .sett-row select { max-width: 100%; width: 100%; }
+
+  /* ── 문서 컨테이너 ── */
+  .doc-container { margin: 6px 0 80px; padding: 0; }
+  .doc-page {
+    padding: 18px 16px 56px;
+    box-shadow: none;
+    border-radius: 0;
+  }
+
+  /* ── 문서 헤더 ── */
+  .doc-head { font-size: 12px; margin-bottom: 8px; }
+
+  /* ── 문서 제목 ── */
+  .doc-title { font-size: 22px; letter-spacing: 7px; margin-bottom: 18px; }
+
+  /* ── 섹션 본문 ── */
+  .sec-hd  { font-size: 13px; }
+  .it-row  { font-size: 13px; line-height: 1.8; }
+  .it-lbl  { min-width: 118px; font-size: 13px; }
+  .it-sub  { font-size: 13px; }
+  .indent-val { padding-left: 120px; }
+
+  /* ── contenteditable 필드: 터치 영역 확보 ── */
+  .ce, .inline-edit {
+    min-height: 26px;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 13px;
+  }
+
+  /* ── 예보 테이블 박스 ── */
+  .fcst-box { margin: 10px 0; }
+  .scroll-x { -webkit-overflow-scrolling: touch; overflow-x: auto; }
+  .wtbl     { font-size: 10px; }
+
+  /* ── 날짜 탭 ── */
+  .dtab { padding: 6px 12px; font-size: 11px; min-height: 34px; }
+  .fcst-tab-label { font-size: 12px; }
+  .ftab { padding: 5px 12px; font-size: 12px; min-height: 34px; }
+
+  /* ── 푸터 ── */
+  .doc-foot { position: static; margin-top: 28px; text-align: center; }
+  .foot-dept { font-size: 18px; letter-spacing: 8px; }
+
+  /* ── 하단 고정 바 (모바일 전용) ── */
+  .mobile-bar { display: flex !important; }
+
+  /* ── QR 모달 ── */
+  .qr-box { width: 90%; max-width: 320px; }
+}
+
+/* ── 모바일 하단 고정 바 ── */
+.mobile-bar {
+  display: none;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  z-index: 400;
+  background: #162032;
+  border-top: 2px solid #2667cc;
+  padding: 8px 14px;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+.mobile-bar .mode-toggle { flex: 1; }
+.mobile-bar .mode-btn { flex: 1; padding: 9px 0; font-size: 14px; text-align: center; }
+.mb-print {
+  background: #2667cc; color: #fff;
+  border: none; border-radius: 8px;
+  padding: 10px 18px; font-size: 14px; font-weight: 700;
+  cursor: pointer; white-space: nowrap;
+  min-width: 80px;
+}
+.mb-refresh {
+  background: transparent; color: #9ab;
+  border: 1px solid #445; border-radius: 8px;
+  padding: 10px 14px; font-size: 16px;
+  cursor: pointer;
+}
+
+/* ===================== 인쇄 스타일 ===================== */
+@media print {
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  body { background: #fff; font-size: 9pt; }
+
+  .no-print { display: none !important; }
+
+  .doc-container { margin: 0; padding: 0; max-width: none; }
+
+  .doc-page {
+    box-shadow: none; padding: 0 10mm 18mm;
+    min-height: 0; page-break-after: always;
+    border-radius: 0;
+  }
+  .scroll-x  { overflow: visible !important; }
+  .daily-wrap, .hourly-wrap { overflow: visible; }
+  .mobile-bar { display: none !important; }
+
+  .doc-title { font-size: 18pt; margin-bottom: 12pt; letter-spacing: 8pt; }
+
+  .wtbl, .htbl { font-size: 7.5pt; }
+  .wi { font-size: 11pt; }
+
+  .fcst-box { margin: 8pt 0; }
+
+  [contenteditable] { outline: none !important; border-bottom: none !important; }
+
+  .doc-foot { position: static; margin-top: 20pt; }
+
+  /* 예보 박스 인쇄 스타일 */
+  .wtbl th, .wtbl td { border-color: #999; }
+  .wtbl .rh { background: #e0e8f0 !important; }
+  .day-stat-row td { background: #d8eaf8 !important; }
+  .day-stat-badge { background: #1E5CB4 !important; color: white !important; }
+  .htbl .time-cell { background: #c8ddef !important; }
+  .dtbl-date.today    { background: #1E5CB4 !important; color: #fff !important; }
+  .dtbl-date.tomorrow { background: #3B78D0 !important; color: #fff !important; }
+  .dtbl-date.morae    { background: #6099DC !important; color: #fff !important; }
+
+  /* 인라인 편집 필드 흑백 */
+  .inline-edit { border-bottom: 1px solid #000 !important; color: #000 !important; font-weight: normal !important; }
+  .ce { border-bottom: none !important; }
+  [contenteditable] { border-bottom: none !important; }
+
+  @page {
+    size: A4;
+    margin: 12mm 15mm;
+  }
+}
