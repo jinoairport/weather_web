@@ -415,10 +415,10 @@ body {
 @media print {
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
-  /* A4 기준 렌더링 강제 — 모바일 브라우저가 좁은 뷰포트로 축소하는 것 방지 */
-  html { width: 210mm; }
+  /* A4 가로(landscape) 기준 렌더링 강제 — 10일 예보 테이블 전체 표시 */
+  html { width: 297mm; }
 
-  body { background: #fff; font-size: 12pt; width: 210mm; }
+  body { background: #fff; font-size: 12pt; width: 297mm; }
 
   .no-print { display: none !important; }
 
@@ -472,7 +472,7 @@ body {
   [contenteditable] { border-bottom: none !important; }
 
   @page {
-    size: A4;
-    margin: 12mm 15mm;
+    size: A4 landscape;
+    margin: 10mm 12mm;
   }
 }
