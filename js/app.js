@@ -385,5 +385,22 @@ function showQR() {
   modal.style.display = 'flex';
 }
 
+/* ===================== 인쇄 (파일명 자동 설정) ===================== */
+function printDoc() {
+  const now    = new Date();
+  const y      = String(now.getFullYear()).slice(2);
+  const m      = now.getMonth() + 1;
+  const d      = now.getDate();
+  const h      = now.getHours();
+  const suffix = currentMode === 'rain' ? '_강우' : '';
+  const orig   = document.title;
+  document.title = `김해공항 기상정보('${y}.${m}.${d}. ${h}시)${suffix}`;
+  window.print();
+  window.addEventListener('afterprint', function restore() {
+    document.title = orig;
+    window.removeEventListener('afterprint', restore);
+  });
+}
+
 /* ===================== 유틸 ===================== */
 function pad2(n) { return String(n).padStart(2, '0'); }
