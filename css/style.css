@@ -425,18 +425,26 @@ body {
   .doc-container { margin: 0; padding: 0; max-width: none; width: 100%; }
 
   .doc-page {
-    box-shadow: none; padding: 0 10mm 18mm;
-    min-height: 0; page-break-after: always;
+    box-shadow: none; padding: 0 10mm 10mm;
+    min-height: 0;
+    /* page-break-after: always 제거 — 콘텐츠를 한 페이지에 강제하다 잘림 발생 */
     border-radius: 0; width: 100%;
   }
-  .scroll-x  { overflow: visible !important; }
-  .daily-wrap { overflow: visible; }
+  .scroll-x  { overflow: visible !important; width: 100% !important; }
+  .daily-wrap { overflow: visible; width: 100%; }
   .mobile-bar { display: none !important; }
 
-  /* 시간별 예보 테이블은 인쇄 시 숨김 (가로 길이 때문에 전체 축소 발생) */
-  .date-tabs  { display: none !important; }
+  /* 시간별 예보 테이블은 인쇄 시 숨김 (열이 너무 많아 어떤 방향으로도 불가) */
+  .date-tabs   { display: none !important; }
   .hourly-wrap { display: none !important; }
-  .fcst-top   { display: none !important; }
+  .fcst-top    { display: none !important; }
+
+  /* 날짜별 예보 테이블 — 전체 너비 사용, 자동 열 폭 배분 */
+  #daily-tbl {
+    table-layout: auto !important;
+    width: 100% !important;
+  }
+  #daily-tbl .rh { width: 13mm !important; min-width: 0 !important; }
 
   .doc-title { font-size: 18pt; margin-bottom: 12pt; letter-spacing: 8pt; }
 
@@ -450,7 +458,10 @@ body {
   .wtbl, .htbl { font-size: 9.5pt; }
   .wi { font-size: 12pt; }
 
-  .fcst-box { margin: 8pt 0; }
+  /* 예보 박스가 페이지에 걸쳐 자연스럽게 넘어가도록 허용 */
+  .fcst-box { margin: 8pt 0; page-break-inside: auto; }
+  .wtbl     { page-break-inside: auto; }
+  .wtbl tr  { page-break-inside: avoid; }
 
   [contenteditable] { outline: none !important; border-bottom: none !important; }
 
