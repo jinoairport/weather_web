@@ -415,7 +415,7 @@ body {
 @media print {
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
-  body { background: #fff; font-size: 9pt; }
+  body { background: #fff; font-size: 11pt; }
 
   .no-print { display: none !important; }
 
@@ -432,7 +432,13 @@ body {
 
   .doc-title { font-size: 18pt; margin-bottom: 12pt; letter-spacing: 8pt; }
 
-  .wtbl, .htbl { font-size: 7.5pt; }
+  /* 섹션 본문 */
+  .sec-hd  { font-size: 11pt; }
+  .it-row  { font-size: 11pt; }
+  .it-lbl  { font-size: 11pt; }
+  .it-sub  { font-size: 11pt; }
+
+  .wtbl, .htbl { font-size: 9pt; }
   .wi { font-size: 11pt; }
 
   .fcst-box { margin: 8pt 0; }

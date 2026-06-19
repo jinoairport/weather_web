@@ -394,12 +394,22 @@ function printDoc() {
   const h      = now.getHours();
   const suffix = currentMode === 'rain' ? '_강우' : '';
   const orig   = document.title;
+
+  // 모바일: 좁은 뷰포트(375px)로 출력하면 브라우저가 전체 축소 → 출력 전 데스크톱 너비로 전환
+  const vp     = document.querySelector('meta[name="viewport"]');
+  const origVp = vp ? vp.content : null;
+  if (vp) vp.content = 'width=900';
+
   document.title = `김해공항 기상정보('${y}.${m}.${d}. ${h}시)${suffix}`;
-  window.print();
-  window.addEventListener('afterprint', function restore() {
-    document.title = orig;
-    window.removeEventListener('afterprint', restore);
-  });
+
+  setTimeout(function () {
+    window.print();
+    window.addEventListener('afterprint', function restore() {
+      document.title = orig;
+      if (vp && origVp) vp.content = origVp;
+      window.removeEventListener('afterprint', restore);
+    });
+  }, 300);
 }
 
 /* ===================== 유틸 ===================== */
