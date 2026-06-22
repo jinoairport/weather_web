@@ -110,6 +110,47 @@ function parseVilageFcst(items) {
   return { dailyRows, hourlyRows };
 }
 
+/* 초단기실황 발표시각 계산 (매시 45분 이후 조회 가능) */
+function getNcstBaseTime() {
+  const now = new Date();
+  const h   = now.getHours();
+  const m   = now.getMinutes();
+  const pad = n => String(n).padStart(2, '0');
+  const d   = new Date(now);
+  let base  = h;
+  if (m < 45) {
+    base = h - 1;
+    if (base < 0) { base = 23; d.setDate(d.getDate() - 1); }
+  }
+  const dateStr = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
+  return { base_date: dateStr, base_time: `${pad(base)}00` };
+}
+
+/* 초단기실황 조회 — 매시간 발표, 현재 기온·강수량·바람 실측값 */
+async function fetchUltraNcst() {
+  const { base_date, base_time } = getNcstBaseTime();
+  const items = await kmaFetch('getUltraSrtNcst', { base_date, base_time });
+  const map = {};
+  for (const it of (Array.isArray(items) ? items : [items])) map[it.category] = it.obsrValue;
+
+  const pty    = parseInt(map.PTY || '0');
+  const rn1Raw = map.RN1 || '강수없음';
+  const rn1    = rn1Raw === '강수없음' ? 0
+               : rn1Raw === '1mm 미만' ? 0.5
+               : parseFloat(rn1Raw) || 0;
+
+  return {
+    tmp:  parseFloat(map.T1H || '20'),
+    rn1,
+    rn1Raw,
+    reh:  parseInt(map.REH || '60'),
+    wsd:  parseFloat(map.WSD || '0'),
+    vec:  parseInt(map.VEC || '180'),
+    pty,
+    baseTime: base_time,
+  };
+}
+
 /* 기상청 특보 조회 (부산 지역) */
 async function fetchWeatherWarning() {
   const url = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
@@ -148,17 +189,19 @@ async function fetchWeatherData(mode) {
     const pad = n => String(n).padStart(2, '0');
     const baseTimeDisplay = `${base_date.slice(4,6)}/${base_date.slice(6,8)} ${base_time.slice(0,2)}:00 발표`;
 
-    const [items, warnings] = await Promise.allSettled([
+    const [items, warnings, ncst] = await Promise.allSettled([
       kmaFetch('getVilageFcst', { base_date, base_time }),
       fetchWeatherWarning(),
+      fetchUltraNcst(),
     ]);
 
     if (items.status === 'rejected') throw new Error(items.reason?.message || 'API 실패');
 
     const { dailyRows, hourlyRows } = parseVilageFcst(items.value);
     const weatherWarnings = warnings.status === 'fulfilled' ? warnings.value : [];
+    const ncstData        = ncst.status === 'fulfilled' ? ncst.value : null;
 
-    return { dailyRows, hourlyRows, generatedAt: new Date(), isReal: true, baseTimeDisplay, weatherWarnings };
+    return { dailyRows, hourlyRows, generatedAt: new Date(), isReal: true, baseTimeDisplay, weatherWarnings, ncstData };
   } catch (err) {
     console.error('[KMA API 오류] 목업 사용. 원인:', err.message);
     console.error('API키 설정 확인: ⚙ 설정 → 기상청 오픈API 서비스키 입력 (data.go.kr)');

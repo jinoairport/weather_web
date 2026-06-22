@@ -13,8 +13,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   updateDocDate();
   refreshData();
 
-  // 10분마다 자동 새로고침
-  setInterval(refreshData, 10 * 60 * 1000);
+  // 5분마다 자동 새로고침 (초단기실황은 매시 갱신, 특보 변화 빠르게 반영)
+  setInterval(refreshData, 5 * 60 * 1000);
 });
 
 /* ===================== 데이터 로드 ===================== */
@@ -23,10 +23,20 @@ async function refreshData() {
   try {
     APP_DATA = await fetchWeatherData(currentMode);
     renderAll();
-    const t = APP_DATA.generatedAt;
-    const src = APP_DATA.isReal ? '✓ 기상청 API' : '⚠ 목업(API키 확인 필요)';
+    const t   = APP_DATA.generatedAt;
+    const src = APP_DATA.isReal ? '✓ 기상청' : '⚠ 목업';
+
+    // 초단기실황 정보 상태바 표시
+    let ncstStr = '';
+    if (APP_DATA.ncstData) {
+      const n = APP_DATA.ncstData;
+      const ptyLabel = ['', '비', '비/눈', '눈', '소나기'][n.pty] || '';
+      if (n.pty > 0)  ncstStr = ` · 실황 ${ptyLabel} ${n.rn1 > 0 ? n.rn1 + 'mm/h' : ''}`.trimEnd();
+      else            ncstStr = ` · 실황 ${n.tmp}℃`;
+    }
+
     document.getElementById('last-update').textContent =
-      `${t.getMonth()+1}/${t.getDate()} ${pad2(t.getHours())}:${pad2(t.getMinutes())} ${src}`;
+      `${t.getMonth()+1}/${t.getDate()} ${pad2(t.getHours())}:${pad2(t.getMinutes())} ${src}${ncstStr}`;
     // 최근발표시각 표시
     const btEl = document.getElementById('base-time-display');
     if (btEl) btEl.textContent = APP_DATA.baseTimeDisplay || '-';
