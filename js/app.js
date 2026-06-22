@@ -26,13 +26,16 @@ async function refreshData() {
     const t   = APP_DATA.generatedAt;
     const src = APP_DATA.isReal ? '✓ 기상청' : '⚠ 목업';
 
-    // 초단기실황 정보 상태바 표시
+    // 초단기실황 정보 상태바 표시 (매 10분 갱신)
     let ncstStr = '';
     if (APP_DATA.ncstData) {
       const n = APP_DATA.ncstData;
+      const bh = n.baseTime.slice(0, 2), bm = n.baseTime.slice(2, 4);
       const ptyLabel = ['', '비', '비/눈', '눈', '소나기'][n.pty] || '';
-      if (n.pty > 0)  ncstStr = ` · 실황 ${ptyLabel} ${n.rn1 > 0 ? n.rn1 + 'mm/h' : ''}`.trimEnd();
-      else            ncstStr = ` · 실황 ${n.tmp}℃`;
+      const condStr  = n.pty > 0
+        ? `${ptyLabel}${n.rn1 > 0 ? ' ' + n.rn1 + 'mm/h' : ''}`
+        : `${n.tmp}℃`;
+      ncstStr = ` · 실황 ${bh}:${bm} ${condStr}`;
     }
 
     document.getElementById('last-update').textContent =

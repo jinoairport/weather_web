@@ -110,20 +110,25 @@ function parseVilageFcst(items) {
   return { dailyRows, hourlyRows };
 }
 
-/* 초단기실황 발표시각 계산 (매시 45분 이후 조회 가능) */
+/* 초단기실황 발표시각 계산 — 매 10분 발표 (0,10,20,30,40,50분), 약 10분 후 제공 */
 function getNcstBaseTime() {
-  const now = new Date();
-  const h   = now.getHours();
-  const m   = now.getMinutes();
-  const pad = n => String(n).padStart(2, '0');
-  const d   = new Date(now);
-  let base  = h;
-  if (m < 45) {
-    base = h - 1;
-    if (base < 0) { base = 23; d.setDate(d.getDate() - 1); }
+  const now     = new Date();
+  const pad     = n => String(n).padStart(2, '0');
+  const d       = new Date(now);
+  // 현재 시각에서 10분(버퍼) 뺀 뒤 10분 단위 내림
+  const totalMin = now.getHours() * 60 + now.getMinutes() - 10;
+  if (totalMin < 0) {
+    d.setDate(d.getDate() - 1);
+    const t = 24 * 60 + totalMin;
+    return {
+      base_date: `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`,
+      base_time: `${pad(Math.floor(t / 60))}${pad(Math.floor((t % 60) / 10) * 10)}`,
+    };
   }
-  const dateStr = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
-  return { base_date: dateStr, base_time: `${pad(base)}00` };
+  return {
+    base_date: `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`,
+    base_time: `${pad(Math.floor(totalMin / 60))}${pad(Math.floor((totalMin % 60) / 10) * 10)}`,
+  };
 }
 
 /* 초단기실황 조회 — 매시간 발표, 현재 기온·강수량·바람 실측값 */
