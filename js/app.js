@@ -133,12 +133,18 @@ function updateNormalSummary(data) {
     const fFull  = (d) => `'${String(d.getFullYear()).slice(2)}. ${d.getMonth()+1}. ${d.getDate()}.`;
     const fShort = (d) => `${d.getMonth()+1}. ${d.getDate()}.`;
     let prefix, from, to;
-    if (dow >= 1 && dow <= 5) {
+    if (dow === 5) {
+      // 금요일: 이번 주말 예보
       prefix = '주말'; from = sat; to = sun;
+    } else if (dow === 6 || dow === 0) {
+      // 토·일: 금주 주말 (오늘~일요일)
+      prefix = '금주 주말'; from = today;
+      to = dow === 6 ? sun : today; // 토→일, 일→오늘
     } else {
+      // 월~목: 금주 단기 (오늘~이번 주 금요일)
       prefix = '금주'; from = today;
       const fri = new Date(today);
-      fri.setDate(today.getDate() + ((5 - dow + 7) % 7 || 7));
+      fri.setDate(today.getDate() + (5 - dow));
       to = fri;
     }
     titleEl.textContent = `□ ${prefix} (${fFull(from)} ~ ${fShort(to)}) 기상예보`;
