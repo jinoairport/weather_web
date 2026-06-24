@@ -458,8 +458,10 @@ body {
   .wtbl, .htbl { font-size: 9.5pt; }
   .wi { font-size: 12pt; }
 
-  /* 예보 박스가 페이지에 걸쳐 자연스럽게 넘어가도록 허용 */
-  .fcst-box { margin: 8pt 0; page-break-inside: auto; }
+  /* 예보 박스: zoom으로 테이블 전체 축소 (landscape에서도 10열 보장) */
+  .fcst-box { margin: 8pt 0; page-break-inside: auto; zoom: 0.78; }
+  /* zoom 적용 시 폰트 역보정 */
+  .fcst-box .wtbl { font-size: 9pt; }
   .wtbl     { page-break-inside: auto; }
   .wtbl tr  { page-break-inside: avoid; }
 
