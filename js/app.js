@@ -176,16 +176,13 @@ function updateNormalSummary(data) {
   setText('v-tmin', tmin);
   setText('v-tmax', tmax);
 
-  // 강수량
-  const maxPop   = Math.max(0, ...rows.map(r => r.pop || 0));
+  // 강수량 — 실측 pcp 합계 기준으로만 표시, 수치 없으면 '없음'
+  const hasTrace = rows.some(r => r.pcpRaw === '1mm 미만');
   const totalPcp = rows.reduce((s, r) => s + Math.max(0, r.pcp || 0), 0);
   const vRain    = document.getElementById('v-rainfall');
   if (vRain) {
-    if      (totalPcp >= 30) vRain.textContent = `${Math.round(totalPcp)}mm 예상`;
-    else if (totalPcp >= 5)  vRain.textContent = `${Math.round(totalPcp)}mm 예상`;
-    else if (maxPop  >= 60)  vRain.textContent = '비 예상';
-    else if (maxPop  >= 40)  vRain.textContent = '가끔 비';
-    else if (maxPop  >= 20)  vRain.textContent = '가끔 (소량)';
+    if      (totalPcp >= 1)  vRain.textContent = `약 ${Math.round(totalPcp)}mm`;
+    else if (hasTrace)       vRain.textContent = '1mm 미만';
     else                     vRain.textContent = '없음';
   }
 }
