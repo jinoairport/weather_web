@@ -68,9 +68,10 @@ body {
 }
 .doc-page {
   background: #fff;
-  padding: 30px 42px 70px;
+  padding: 30px 42px 30px;
   box-shadow: 0 4px 18px rgba(0,0,0,.18);
-  position: relative;
+  display: flex;
+  flex-direction: column;
   min-height: 270mm;
   color: #000;
   font-size: 12px;
@@ -95,7 +96,7 @@ body {
 }
 
 /* ===================== 섹션 ===================== */
-.doc-sec { margin-bottom: 16px; }
+.doc-sec { margin-bottom: 22px; }
 .sec-hd  { font-size: 13px; font-weight: 700; margin-bottom: 6px; color: #000; }
 .sec-body { padding-left: 22px; }
 
@@ -304,7 +305,8 @@ body {
 
 /* ===================== 문서 푸터 ===================== */
 .doc-foot {
-  position: absolute; bottom: 22px; left: 0; right: 0;
+  margin-top: auto;   /* 푸터를 항상 맨 아래로 밀어냄 */
+  padding-top: 24px;
   text-align: center;
 }
 .foot-dept { font-size: 22px; font-weight: 900; letter-spacing: 12px; }

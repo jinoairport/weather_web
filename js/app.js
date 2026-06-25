@@ -150,17 +150,22 @@ function updateNormalSummary(data) {
     titleEl.textContent = `□ ${prefix} (${fFull(from)} ~ ${fShort(to)}) 기상예보`;
   }
 
-  // 제목과 동일한 기간으로 hourlyRows 필터
+  // 제목과 동일한 기간으로 hourlyRows 필터 (기온은 하루 시작부터)
   const { sat, sun } = getWeekendRange(today);
+  const todayStart = new Date(today); todayStart.setHours(0, 0, 0, 0);
   let periodFrom, periodTo;
   if (dow === 5) {
+    // 금요일: 토~일
     periodFrom = sat; periodTo = sun;
   } else if (dow === 6) {
-    periodFrom = today; periodTo = sun;
+    // 토요일: 오늘~일
+    periodFrom = todayStart; periodTo = sun;
   } else if (dow === 0) {
-    periodFrom = today; periodTo = today;
+    // 일요일: 오늘만
+    periodFrom = todayStart; periodTo = today;
   } else {
-    periodFrom = today;
+    // 월~목: 오늘 0시 ~ 이번 주 금요일 (기온 범위 누락 방지)
+    periodFrom = todayStart;
     periodTo   = new Date(today);
     periodTo.setDate(today.getDate() + (5 - dow));
   }
