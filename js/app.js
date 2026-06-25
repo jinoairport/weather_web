@@ -264,9 +264,7 @@ function updateRainSummary(data) {
   // 예상강수량: 현재 이후 미래 강수량 자동 합산
   const futureRows = data.hourlyRows.filter(r => r.time > today);
   const expectedTotal = futureRows.reduce((s, r) => s + Math.max(0, r.pcp || 0), 0);
-  if (expectedTotal > 0) {
-    setText('v-expected', pcpRange(expectedTotal));
-  }
+  setText('v-expected', expectedTotal > 0 ? pcpRange(expectedTotal) : '없음');
 
   // 집중강수시간대
   const vIntense = document.getElementById('v-intense');
@@ -393,7 +391,7 @@ function showQR() {
   modal.style.display = 'flex';
 }
 
-/* ===================== 인쇄 (파일명 자동 설정) ===================== */
+/* ===================== 인쇄 — 화면 그대로 이미지로 출력 ===================== */
 function printDoc() {
   const now    = new Date();
   const y      = String(now.getFullYear()).slice(2);
@@ -401,20 +399,36 @@ function printDoc() {
   const d      = now.getDate();
   const h      = now.getHours();
   const suffix = currentMode === 'rain' ? '_강우' : '';
-  const orig   = document.title;
+  const title  = `김해공항 기상정보('${y}.${m}.${d}. ${h}시)${suffix}`;
 
-  // 출력 전: 날짜별 표를 5일치로 축소 렌더링 (세로 A4에 맞춤)
-  const allDaily = APP_DATA && APP_DATA.dailyRows;
-  if (allDaily) renderDailyTable(allDaily.slice(0, 5));
+  if (typeof html2canvas === 'undefined') {
+    // html2canvas 로드 실패 시 브라우저 기본 출력 폴백
+    const orig = document.title;
+    document.title = title;
+    window.print();
+    window.addEventListener('afterprint', function r() {
+      document.title = orig;
+      window.removeEventListener('afterprint', r);
+    });
+    return;
+  }
 
-  document.title = `김해공항 기상정보('${y}.${m}.${d}. ${h}시)${suffix}`;
-  window.print();
-
-  window.addEventListener('afterprint', function restore() {
-    document.title = orig;
-    // 출력 후: 원래 10일치로 복원
-    if (allDaily) renderDailyTable(allDaily);
-    window.removeEventListener('afterprint', restore);
+  const target = document.getElementById('doc-page');
+  html2canvas(target, { scale: 2, useCORS: true, logging: false }).then(function(canvas) {
+    const imgUrl = canvas.toDataURL('image/png');
+    const win = window.open('', '_blank');
+    if (!win) { alert('팝업 차단을 해제해 주세요.'); return; }
+    win.document.write(
+      '<!DOCTYPE html><html><head>' +
+      '<meta charset="UTF-8"><title>' + title + '</title>' +
+      '<style>*{margin:0;padding:0}body{background:#fff}' +
+      'img{width:100%;display:block}' +
+      '@media print{img{width:100%}@page{margin:0}}' +
+      '</style></head><body>' +
+      '<img src="' + imgUrl + '" onload="window.print()">' +
+      '</body></html>'
+    );
+    win.document.close();
   });
 }
 
