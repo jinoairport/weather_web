@@ -150,51 +150,43 @@ function updateNormalSummary(data) {
     titleEl.textContent = `□ ${prefix} (${fFull(from)} ~ ${fShort(to)}) 기상예보`;
   }
 
-  // 주말 기온 자동 채우기
+  // 제목과 동일한 기간으로 hourlyRows 필터
   const { sat, sun } = getWeekendRange(today);
-
-  // dailyRows가 있으면 우선 사용, 없으면 hourlyRows fallback
-  if (data.dailyRows && data.dailyRows.length > 0) {
-    const weekendDays = data.dailyRows.filter(r => {
-      const ds = r.date.toDateString();
-      return ds === sat.toDateString() || ds === sun.toDateString();
-    });
-    if (weekendDays.length > 0) {
-      const tmins = weekendDays.map(r => r.tmin).filter(v => v < 99);
-      const tmaxs = weekendDays.map(r => r.tmax).filter(v => v > -99);
-      if (tmins.length > 0) setText('v-tmin', Math.min(...tmins));
-      if (tmaxs.length > 0) setText('v-tmax', Math.max(...tmaxs));
-
-      const maxPop = Math.max(0, ...weekendDays.map(r => Math.max(r.amPop || 0, r.pmPop || 0)));
-      const vRain = document.getElementById('v-rainfall');
-      if (vRain) {
-        if (maxPop >= 50)      vRain.textContent = '가끔 (소량)';
-        else if (maxPop >= 30) vRain.textContent = '가끔 (소량)';
-        else                   vRain.textContent = '없음';
-      }
-    }
+  let periodFrom, periodTo;
+  if (dow === 5) {
+    periodFrom = sat; periodTo = sun;
+  } else if (dow === 6) {
+    periodFrom = today; periodTo = sun;
+  } else if (dow === 0) {
+    periodFrom = today; periodTo = today;
   } else {
-    const weekendHours = data.hourlyRows.filter(r => {
-      const ds = r.time.toDateString();
-      return ds === sat.toDateString() || ds === sun.toDateString();
-    });
+    periodFrom = today;
+    periodTo   = new Date(today);
+    periodTo.setDate(today.getDate() + (5 - dow));
+  }
+  const periodEnd = new Date(periodTo);
+  periodEnd.setHours(23, 59, 59, 999);
 
-    if (weekendHours.length > 0) {
-      const tmin = Math.min(...weekendHours.map(r => r.tmp));
-      const tmax = Math.max(...weekendHours.map(r => r.tmp));
-      setText('v-tmin', tmin);
-      setText('v-tmax', tmax);
+  const rows = (data.hourlyRows || []).filter(r => r.time >= periodFrom && r.time <= periodEnd);
+  if (rows.length === 0) return;
 
-      // 강수확률 기반 강수량 텍스트
-      const maxPop = Math.max(0, ...weekendHours.map(r => r.pop || 0));
-      const totalPcp = weekendHours.reduce((s, r) => s + Math.max(0, r.pcp || 0), 0);
-      const vRain = document.getElementById('v-rainfall');
-      if (vRain) {
-        if (totalPcp >= 5)      vRain.textContent = `${Math.round(totalPcp)}mm 예상`;
-        else if (maxPop >= 30)  vRain.textContent = '가끔 (소량)';
-        else                    vRain.textContent = '없음';
-      }
-    }
+  // 기온
+  const tmin = Math.min(...rows.map(r => r.tmp));
+  const tmax = Math.max(...rows.map(r => r.tmp));
+  setText('v-tmin', tmin);
+  setText('v-tmax', tmax);
+
+  // 강수량
+  const maxPop   = Math.max(0, ...rows.map(r => r.pop || 0));
+  const totalPcp = rows.reduce((s, r) => s + Math.max(0, r.pcp || 0), 0);
+  const vRain    = document.getElementById('v-rainfall');
+  if (vRain) {
+    if      (totalPcp >= 30) vRain.textContent = `${Math.round(totalPcp)}mm 예상`;
+    else if (totalPcp >= 5)  vRain.textContent = `${Math.round(totalPcp)}mm 예상`;
+    else if (maxPop  >= 60)  vRain.textContent = '비 예상';
+    else if (maxPop  >= 40)  vRain.textContent = '가끔 비';
+    else if (maxPop  >= 20)  vRain.textContent = '가끔 (소량)';
+    else                     vRain.textContent = '없음';
   }
 }
 
