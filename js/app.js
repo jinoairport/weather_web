@@ -402,10 +402,18 @@ function printDoc() {
   const h      = now.getHours();
   const suffix = currentMode === 'rain' ? '_강우' : '';
   const orig   = document.title;
+
+  // 출력 전: 날짜별 표를 5일치로 축소 렌더링 (세로 A4에 맞춤)
+  const allDaily = APP_DATA && APP_DATA.dailyRows;
+  if (allDaily) renderDailyTable(allDaily.slice(0, 5));
+
   document.title = `김해공항 기상정보('${y}.${m}.${d}. ${h}시)${suffix}`;
   window.print();
+
   window.addEventListener('afterprint', function restore() {
     document.title = orig;
+    // 출력 후: 원래 10일치로 복원
+    if (allDaily) renderDailyTable(allDaily);
     window.removeEventListener('afterprint', restore);
   });
 }

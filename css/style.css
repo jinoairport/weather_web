@@ -426,8 +426,23 @@ body {
     padding: 0; min-height: 0;
   }
 
-  /* 예보 박스(표) 전체 인쇄 제외 — 표는 화면 전용, 보고서 본문만 출력 */
-  .fcst-box { display: none !important; }
+  /* 예보 박스: 5일치만 표시 (printDoc에서 렌더 후 출력), 시간별 탭은 숨김 */
+  .fcst-box  { margin: 6pt 0; }
+  .fcst-top  { display: none !important; }
+  .date-tabs { display: none !important; }
+  .hourly-wrap { display: none !important; }
+  .scroll-x  { overflow: visible !important; }
+  .daily-wrap { overflow: visible; }
+
+  /* 5일 표가 세로 A4에 맞도록 축소 */
+  .fcst-box { zoom: 0.82; }
+
+  /* 표 색상·테두리 */
+  .wtbl th, .wtbl td { border-color: #999; font-size: 8.5pt; }
+  .wtbl .rh { background: #e0e8f0 !important; }
+  .dtbl-date.today    { background: #1E5CB4 !important; color: #fff !important; }
+  .dtbl-date.tomorrow { background: #3B78D0 !important; color: #fff !important; }
+  .dtbl-date.morae    { background: #6099DC !important; color: #fff !important; }
 
   /* 제목 */
   .doc-title { font-size: 20pt; margin-bottom: 14pt; letter-spacing: 8pt; }
