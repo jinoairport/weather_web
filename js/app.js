@@ -402,46 +402,12 @@ function printDoc() {
   const h      = now.getHours();
   const suffix = currentMode === 'rain' ? '_강우' : '';
   const orig   = document.title;
-
-  // 1) 뷰포트 → 데스크톱 너비 강제
-  const vp     = document.querySelector('meta[name="viewport"]');
-  const origVp = vp ? vp.content : null;
-  if (vp) vp.content = 'width=900';
-
-  // 2) 테이블 scroll-x 컨테이너 overflow DOM 직접 해제
-  //    모바일 CSS는 print 미디어쿼리보다 브라우저 렌더 스냅샷이 먼저라 CSS만으론 부족
-  const saved = [];
-  document.querySelectorAll('.scroll-x').forEach(function(el) {
-    saved.push({ el: el, ov: el.style.overflow, w: el.style.width });
-    el.style.setProperty('overflow', 'visible', 'important');
-    el.style.width = '100%';
-  });
-  const tbl = document.getElementById('daily-tbl');
-  const savedTbl = tbl ? { tl: tbl.style.tableLayout, w: tbl.style.width } : null;
-  if (tbl) {
-    tbl.style.setProperty('table-layout', 'auto', 'important');
-    tbl.style.width = '100%';
-  }
-
   document.title = `김해공항 기상정보('${y}.${m}.${d}. ${h}시)${suffix}`;
-
-  // 3) 재렌더링 대기 후 출력 (모바일은 700ms 이상 필요)
-  setTimeout(function () {
-    window.print();
-    window.addEventListener('afterprint', function restore() {
-      document.title = orig;
-      if (vp && origVp) vp.content = origVp;
-      saved.forEach(function(s) {
-        s.el.style.overflow = s.ov;
-        s.el.style.width    = s.w;
-      });
-      if (tbl && savedTbl) {
-        tbl.style.tableLayout = savedTbl.tl;
-        tbl.style.width       = savedTbl.w;
-      }
-      window.removeEventListener('afterprint', restore);
-    });
-  }, 700);
+  window.print();
+  window.addEventListener('afterprint', function restore() {
+    document.title = orig;
+    window.removeEventListener('afterprint', restore);
+  });
 }
 
 /* ===================== 유틸 ===================== */
