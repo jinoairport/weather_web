@@ -123,11 +123,11 @@ body {
 
 /* ===================== 예보 박스 ===================== */
 .fcst-box {
-  border: 1px solid #C0D4EC; margin: 14px 0 10px; font-size: 11px;
+  border: 1px solid #a8bcc8; margin: 14px 0 10px; font-size: 11px;
 }
 
 .fcst-top {
-  background: #EAF2FB; padding: 6px 10px; border-bottom: 1px solid #C0D4EC;
+  background: #dde8ef; padding: 6px 10px; border-bottom: 1px solid #a8bcc8;
 }
 .fcst-tabs { display: flex; align-items: center; gap: 6px; }
 .fcst-tab-label { font-weight: 700; font-size: 11px; margin-right: 4px; }
@@ -138,23 +138,23 @@ body {
 .ftab.active { background: #2667cc; color: #fff; border-color: #2667cc; }
 .tab-hint { margin-left: auto; font-size: 10px; color: #888; }
 
-.fcst-divider { height: 1px; background: #C0D4EC; }
+.fcst-divider { height: 1px; background: #a8bcc8; }
 
 /* ===================== 공통 테이블 — 날씨누리 색상 ===================== */
 .wtbl {
   width: 100%; border-collapse: collapse; font-size: 11px;
   table-layout: fixed;
-  border: 1px solid #C0D4EC;
+  border: 1px solid #a8bcc8;
 }
 .wtbl th, .wtbl td {
-  border: 1px solid #D0DFF0; text-align: center;
+  border: 1px solid #b8c8d4; text-align: center;
   padding: 3px 2px; vertical-align: middle;
   white-space: nowrap; overflow: hidden;
 }
 .wtbl .rh {
-  background: #E2EEF8; font-weight: 700; font-size: 10px;
+  background: #d4e0e8; font-weight: 700; font-size: 10px;
   text-align: center; width: 52px; min-width: 52px;
-  border-right: 1px solid #B8CEEA; color: #1a3870;
+  border-right: 1px solid #9ab4c4; color: #2a3c50;
 }
 
 /* ===================== 날짜별 10일 예보 ===================== */
@@ -162,13 +162,13 @@ body {
 .scroll-x   { overflow-x: auto; }
 
 .dtbl-date {
-  background: #C8DDEF; font-size: 10px; font-weight: 700; color: #1a3870;
+  background: #b0c8d8; font-size: 10px; font-weight: 700; color: #1e2e3e;
 }
-.dtbl-date.today    { background: #1E5CB4; color: #fff; }
-.dtbl-date.tomorrow { background: #3B78D0; color: #fff; }
-.dtbl-date.morae    { background: #6099DC; color: #fff; }
+.dtbl-date.today    { background: #3a6080; color: #fff; }
+.dtbl-date.tomorrow { background: #5a7e98; color: #fff; }
+.dtbl-date.morae    { background: #7898b2; color: #fff; }
 
-.dtbl-sess { background: #E8F3FC; font-size: 9px; color: #3a5a90; }
+.dtbl-sess { background: #dce8f0; font-size: 9px; color: #2a4258; }
 
 /* 날씨 아이콘 셀 */
 .wi { font-size: 15px; line-height: 1; }
@@ -191,23 +191,23 @@ body {
 
 /* ===================== 날짜 탭 (시간별) ===================== */
 .date-tabs {
-  display: flex; background: #EAF2FB;
-  border-top: 1px solid #C0D4EC; border-bottom: 1px solid #C0D4EC;
+  display: flex; background: #dde8ef;
+  border-top: 1px solid #a8bcc8; border-bottom: 1px solid #a8bcc8;
 }
 .dtab {
   padding: 4px 12px; font-size: 11px; font-weight: 700;
-  border-right: 1px solid #C0D4EC; cursor: pointer; color: #1a3870;
+  border-right: 1px solid #a8bcc8; cursor: pointer; color: #1e2e3e;
 }
-.dtab.active { background: #1E5CB4; color: #fff; }
+.dtab.active { background: #3a6080; color: #fff; }
 
 /* ===================== 시간별 예보 테이블 — 날씨누리 ===================== */
 .htbl .time-cell {
   font-size: 10px; font-weight: 700;
-  background: #C8DDEF; color: #1a3870;
+  background: #b0c8d8; color: #1e2e3e;
 }
 .htbl .dg-hd {
-  background: #C8DDEF; font-weight: 700; font-size: 10px; color: #1a3870;
-  border-left: 2px solid #1E5CB4;
+  background: #b0c8d8; font-weight: 700; font-size: 10px; color: #1e2e3e;
+  border-left: 2px solid #3a6080;
 }
 
 /* 온도 그래프 행 */
@@ -247,10 +247,10 @@ body {
 .dtbl-date.sun  { color: #cc2200; } /* 일요일: 빨강 */
 
 /* 시간별 날짜+최저최고 헤더 */
-.day-stat-row td { background: #EAF3FC; border-bottom: 1px solid #C0D4EC; }
+.day-stat-row td { background: #dce8f0; border-bottom: 1px solid #a8bcc8; }
 .day-stat-cell { text-align: left; padding: 4px 8px; font-size: 10px; }
-.day-stat-badge { background: #1E5CB4; color: white; border-radius: 3px; padding: 1px 6px; font-size: 10px; font-weight: 700; margin-right: 6px; }
-.day-stat-text  { font-size: 10px; color: #1a3870; font-weight: 600; }
+.day-stat-badge { background: #3a6080; color: white; border-radius: 3px; padding: 1px 6px; font-size: 10px; font-weight: 700; margin-right: 6px; }
+.day-stat-text  { font-size: 10px; color: #1e2e3e; font-weight: 600; }
 
 /* 폭염영향 바 */
 .heat-none    { background: transparent; color: #aaa; }
@@ -441,11 +441,11 @@ body {
   .fcst-box { zoom: 0.82; }
 
   /* 표 색상·테두리 */
-  .wtbl th, .wtbl td { border-color: #999; font-size: 8.5pt; }
-  .wtbl .rh { background: #e0e8f0 !important; }
-  .dtbl-date.today    { background: #1E5CB4 !important; color: #fff !important; }
-  .dtbl-date.tomorrow { background: #3B78D0 !important; color: #fff !important; }
-  .dtbl-date.morae    { background: #6099DC !important; color: #fff !important; }
+  .wtbl th, .wtbl td { border-color: #9ab0bc; font-size: 8.5pt; }
+  .wtbl .rh { background: #d4e0e8 !important; }
+  .dtbl-date.today    { background: #3a6080 !important; color: #fff !important; }
+  .dtbl-date.tomorrow { background: #5a7e98 !important; color: #fff !important; }
+  .dtbl-date.morae    { background: #7898b2 !important; color: #fff !important; }
 
   /* 제목 */
   .doc-title { font-size: 20pt; margin-bottom: 14pt; letter-spacing: 8pt; }

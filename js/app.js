@@ -134,12 +134,12 @@ function updateNormalSummary(data) {
     const fShort = (d) => `${d.getMonth()+1}. ${d.getDate()}.`;
     let prefix, from, to;
     if (dow === 5) {
-      // 금요일: 이번 주말 예보
-      prefix = '주말'; from = sat; to = sun;
+      // 금요일: 이번주 주말 예보
+      prefix = '이번주 주말'; from = sat; to = sun;
     } else if (dow === 6 || dow === 0) {
       // 토·일: 금주 주말 (오늘~일요일)
       prefix = '금주 주말'; from = today;
-      to = dow === 6 ? sun : today; // 토→일, 일→오늘
+      to = dow === 6 ? sun : today;
     } else {
       // 월~목: 금주 단기 (오늘~이번 주 금요일)
       prefix = '금주'; from = today;
@@ -181,14 +181,26 @@ function updateNormalSummary(data) {
   setText('v-tmin', tmin);
   setText('v-tmax', tmax);
 
-  // 강수량 — 실측 pcp 합계 기준으로만 표시, 수치 없으면 '없음'
+  // 강수량 — 기간 총량 + 집중 시간대 표시
   const hasTrace = rows.some(r => r.pcpRaw === '1mm 미만');
   const totalPcp = rows.reduce((s, r) => s + Math.max(0, r.pcp || 0), 0);
   const vRain    = document.getElementById('v-rainfall');
   if (vRain) {
-    if      (totalPcp >= 1)  vRain.textContent = `약 ${Math.round(totalPcp)}mm`;
-    else if (hasTrace)       vRain.textContent = '1mm 미만';
-    else                     vRain.textContent = '없음';
+    if (totalPcp >= 1) {
+      const range = pcpRange(totalPcp);
+      const intense = findIntenseSegment(rows, totalPcp);
+      let rainStr = `${range} 예상`;
+      if (intense) {
+        const fmtMDdow = t => `${t.getDate()}일(${DAYS_KO[t.getDay()]})`;
+        const fmtH2    = t => `${String(t.getHours()).padStart(2, '0')}시`;
+        rainStr += ` [${fmtMDdow(intense.start)} ${fmtH2(intense.start)} ~ ${fmtH2(intense.end)}]`;
+      }
+      vRain.textContent = rainStr;
+    } else if (hasTrace) {
+      vRain.textContent = '1mm 미만';
+    } else {
+      vRain.textContent = '없음';
+    }
   }
 }
 
@@ -340,10 +352,11 @@ function loadSettings() {
 
 /* ===================== 특보 표시 ===================== */
 function updateWeatherWarnings(warnings) {
-  const el = document.getElementById('v-special');
-  if (!el) return;
+  const el      = document.getElementById('v-special');
+  const elAlert = document.getElementById('v-alert');
   if (!warnings || warnings.length === 0) {
-    el.textContent = '해당없음';
+    if (el)      el.textContent = '해당없음';
+    if (elAlert) elAlert.textContent = '해당없음';
     return;
   }
 
@@ -376,7 +389,8 @@ function updateWeatherWarnings(warnings) {
     return `${title}${timePart}`;
   }).filter(Boolean).join(', ');
 
-  el.textContent = texts || '해당없음';
+  if (el)      el.textContent = texts || '해당없음';
+  if (elAlert) elAlert.textContent = texts || '해당없음';
 }
 
 /* ===================== QR 모달 ===================== */

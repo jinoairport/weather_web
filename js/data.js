@@ -79,19 +79,85 @@ const WI_SVG = {
     </g>
     <path d="M14 20.5 L12 24.5 L16 24.5Z" fill="#FFD600"/>
   </svg>`,
+
+  thunder: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="26" height="26">
+    <path d="M3 15 Q3 10 9 10 Q10 6.5 16 8 Q20 6.5 20 11 Q24 11 24 15.5 Q24 19 20 19 H6 Q3 19 3 15Z" fill="#546E7A"/>
+    <g stroke="#64B5F6" stroke-width="1.4" stroke-linecap="round">
+      <line x1="8"  y1="21" x2="6.5"  y2="25"/>
+      <line x1="18" y1="21" x2="16.5" y2="25"/>
+    </g>
+    <polyline points="15,18 12,23 16,23 13,28" stroke="#FFD600" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`,
+
+  hail: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="26" height="26">
+    <path d="M4 15 Q4 10 9.5 10 Q10.5 6.5 16 8 Q20 6.5 20 11 Q23.5 11 23.5 15.5 Q23.5 19 20 19 H7 Q3.5 19 4 15Z" fill="#607D8B"/>
+    <g fill="#B0D8FF" stroke="#7aaed4" stroke-width="0.5">
+      <circle cx="8.5"  cy="22.5" r="2.2"/>
+      <circle cx="14"   cy="22.5" r="2.2"/>
+      <circle cx="19.5" cy="22.5" r="2.2"/>
+      <circle cx="11.5" cy="27"   r="2.2"/>
+      <circle cx="17"   cy="27"   r="2.2"/>
+    </g>
+  </svg>`,
+
+  fog: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="26" height="26">
+    <g stroke="#90A4AE" stroke-width="2.5" stroke-linecap="round">
+      <line x1="3"  y1="10" x2="25" y2="10"/>
+      <line x1="5"  y1="15" x2="23" y2="15"/>
+      <line x1="3"  y1="20" x2="25" y2="20"/>
+      <line x1="7"  y1="25" x2="21" y2="25"/>
+    </g>
+  </svg>`,
+
+  heavySnow: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="26" height="26">
+    <path d="M4 14 Q4 9 9.5 9 Q10.5 5.5 16 7 Q20 5.5 20 10 Q23.5 10 23.5 14.5 Q23.5 18 20 18 H7 Q3.5 18 4 14Z" fill="#78909C"/>
+    <g fill="#B0C4DE" stroke="#7090b0" stroke-width="0.4">
+      <circle cx="7"  cy="22" r="2.5"/>
+      <circle cx="14" cy="22" r="2.5"/>
+      <circle cx="21" cy="22" r="2.5"/>
+      <circle cx="10.5" cy="27" r="2.5"/>
+      <circle cx="17.5" cy="27" r="2.5"/>
+    </g>
+  </svg>`,
+
+  snowBlowing: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="26" height="26">
+    <path d="M4 13 Q4 8.5 9 8.5 Q10 5.5 15 7 Q19 5.5 19 10 Q22.5 10 22.5 13.5 Q22.5 17 19 17 H7 Q3.5 17 4 13Z" fill="#90A4AE"/>
+    <g fill="#B0C4DE">
+      <circle cx="7.5"  cy="21" r="2"/>
+      <circle cx="14"   cy="21" r="2"/>
+      <circle cx="20.5" cy="21" r="2"/>
+    </g>
+    <g stroke="#9ab4cc" stroke-width="1.8" stroke-linecap="round">
+      <line x1="3"  y1="25" x2="13" y2="25"/>
+      <line x1="5"  y1="28" x2="17" y2="28"/>
+    </g>
+  </svg>`,
+
+  rainDrop: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="26" height="26">
+    <path d="M4 15 Q4 10 9.5 10 Q10.5 6.5 16 8 Q20 6.5 20 11 Q23.5 11 23.5 15.5 Q23.5 19 20 19 H7 Q3.5 19 4 15Z" fill="#7986CB"/>
+    <g stroke="#90CAF9" stroke-width="1.2" stroke-linecap="round">
+      <line x1="11" y1="21" x2="10" y2="24"/>
+      <line x1="17" y1="21" x2="16" y2="24"/>
+    </g>
+  </svg>`,
 };
 
 /* ---- 날씨 코드 → 아이콘/라벨 ---- */
 const WX = {
   icon(pty, sky) {
-    if (pty === 4) return { svg: WI_SVG.shower,      lbl: '소나기' };
+    // 단기예보 PTY: 0없음 1비 2비/눈 3눈 4소나기
+    // 초단기실황 추가 PTY: 5빗방울 6빗방울/눈날림 7눈날림
+    if (pty === 7) return { svg: WI_SVG.snowBlowing,  lbl: '눈날림' };
+    if (pty === 6) return { svg: WI_SVG.sleet,        lbl: '빗방울/눈날림' };
+    if (pty === 5) return { svg: WI_SVG.rainDrop,     lbl: '빗방울' };
+    if (pty === 4) return { svg: WI_SVG.shower,       lbl: '소나기' };
     if (pty === 3) return { svg: WI_SVG.snowy,        lbl: '눈' };
     if (pty === 2) return { svg: WI_SVG.sleet,        lbl: '비/눈' };
     if (pty === 1) return { svg: WI_SVG.rainy,        lbl: '비' };
     if (sky === 4) return { svg: WI_SVG.overcast,     lbl: '흐림' };
     if (sky === 3) return { svg: WI_SVG.mostlyCloudy, lbl: '구름많음' };
     if (sky === 2) return { svg: WI_SVG.partlyCloudy, lbl: '구름조금' };
-    return               { svg: WI_SVG.sunny,         lbl: '맑음' };
+    return                { svg: WI_SVG.sunny,        lbl: '맑음' };
   },
 
   // 풍속(m/s) → 세기 문자
