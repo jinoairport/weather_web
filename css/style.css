@@ -90,7 +90,8 @@ body {
   text-align: center;
   font-size: 26px; font-weight: 900;
   text-decoration: underline;
-  margin-bottom: 24px; margin-top: 8px;
+  margin-top: auto;   /* 헤더와 제목 사이 여백 자동 확장 */
+  margin-bottom: 24px;
   letter-spacing: 10px;
   color: #000;
 }
@@ -374,7 +375,7 @@ body {
   .ftab { padding: 5px 12px; font-size: 12px; min-height: 34px; }
 
   /* ── 푸터 ── */
-  .doc-foot { position: static; margin-top: 28px; text-align: center; }
+  .doc-foot { margin-top: auto; padding-top: 20px; text-align: center; }
   .foot-dept { font-size: 18px; letter-spacing: 8px; }
 
   /* ── 하단 고정 바 (모바일 전용) ── */
