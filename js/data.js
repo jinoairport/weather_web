@@ -307,5 +307,23 @@ function buildMockData(mode) {
   return { dailyRows, hourlyRows, generatedAt: today };
 }
 
+/* 전국 14개 공항 기상 격자 좌표 (기상청 동네예보) */
+const AIRPORTS = [
+  { name: '김포',    code: 'GMP', city: '서울/경기', location: '오쇠동',  nx: 57,  ny: 126 },
+  { name: '제주',    code: 'CJU', city: '제주',      location: '용담동',  nx: 52,  ny: 38  },
+  { name: '김해',    code: 'PUS', city: '부산',      location: '대저2동', nx: 96,  ny: 76  },
+  { name: '대구',    code: 'TAE', city: '대구',      location: '지저동',  nx: 89,  ny: 90  },
+  { name: '청주',    code: 'CJJ', city: '청주',      location: '내수읍',  nx: 68,  ny: 107 },
+  { name: '광주',    code: 'KWJ', city: '광주',      location: '신촌동',  nx: 58,  ny: 74  },
+  { name: '여수',    code: 'RSU', city: '여수',      location: '율촌면',  nx: 75,  ny: 67  },
+  { name: '무안',    code: 'MWX', city: '전남',      location: '망운면',  nx: 49,  ny: 70  },
+  { name: '포항경주', code: 'KPO', city: '포항',     location: '동해면',  nx: 102, ny: 91  },
+  { name: '군산',    code: 'KUV', city: '전북',      location: '옥서면',  nx: 55,  ny: 91  },
+  { name: '원주',    code: 'WJU', city: '강원',      location: '호저면',  nx: 76,  ny: 122 },
+  { name: '사천',    code: 'HIN', city: '경남',      location: '사남면',  nx: 80,  ny: 75  },
+  { name: '양양',    code: 'YNY', city: '강원',      location: '손양면',  nx: 88,  ny: 138 },
+  { name: '울산',    code: 'USN', city: '울산',      location: '신현동',  nx: 102, ny: 84  },
+];
+
 /* 전역 데이터 저장소 */
 let APP_DATA = null;

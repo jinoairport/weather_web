@@ -13,8 +13,8 @@
   <!-- ===== 웹 전용 컨트롤 바 (인쇄 시 숨김) ===== -->
   <div class="no-print control-bar">
     <div class="ctrl-logo">
-      <div class="ctrl-title">김해공항 기상정보 시스템</div>
-      <div class="ctrl-sub">대저2동 기준 &nbsp;·&nbsp; <span id="last-update">로딩 중...</span></div>
+      <div class="ctrl-title" id="ctrl-title-el">김해공항 기상정보 시스템</div>
+      <div class="ctrl-sub"><span id="ctrl-location">대저2동</span> 기준 &nbsp;·&nbsp; <span id="last-update">로딩 중...</span></div>
     </div>
     <div class="ctrl-center">
       <div class="mode-toggle">
@@ -23,6 +23,7 @@
       </div>
     </div>
     <div class="ctrl-actions">
+      <button class="act-btn" onclick="toggleAirportPanel()">✈ 공항선택</button>
       <button class="act-btn" onclick="refreshData()">↺ 새로고침</button>
       <button class="act-btn primary" onclick="printDoc()">🖨 PDF 출력</button>
       <button class="act-btn" onclick="showQR()">📱 모바일</button>
@@ -54,9 +55,15 @@
     </div>
   </div>
 
+  <!-- ===== 공항 선택 패널 ===== -->
+  <div id="airport-panel" class="no-print airport-panel" style="display:none">
+    <div class="apt-grid" id="apt-grid"></div>
+  </div>
+
   <!-- ===== 모바일 하단 고정 바 ===== -->
   <div class="no-print mobile-bar">
     <button class="mb-refresh" onclick="refreshData()" title="새로고침">↺</button>
+    <button class="mb-airport" onclick="toggleAirportPanel()" title="공항선택">✈</button>
     <div class="mode-toggle">
       <button id="mb-btn-normal" class="mode-btn active" onclick="setMode('normal')">일반</button>
       <button id="mb-btn-rain"   class="mode-btn"        onclick="setMode('rain')">강우</button>
@@ -81,12 +88,12 @@
 
       <!-- 문서 헤더 -->
       <div class="doc-head">
-        <span class="d-dept">김해공항 토목부</span>
+        <span class="d-dept" id="doc-dept">김해공항 토목부</span>
         <span class="d-date" id="doc-date"></span>
       </div>
 
       <!-- 제목 -->
-      <h1 class="doc-title">김해공항 기상정보</h1>
+      <h1 class="doc-title" id="doc-title-el">김해공항 기상정보</h1>
 
       <!-- ■ 일반 모드 요약 -->
       <div id="sec-normal">
@@ -203,7 +210,7 @@
 
       <!-- 문서 푸터 -->
       <div class="doc-foot">
-        <div class="foot-dept">김해공항 토목부</div>
+        <div class="foot-dept" id="doc-foot-dept">김해공항 토목부</div>
       </div>
 
     </div><!-- /.doc-page -->

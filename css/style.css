@@ -414,6 +414,44 @@ body {
   cursor: pointer;
 }
 
+/* ===================== 공항 선택 패널 ===================== */
+.airport-panel {
+  background: #1a2b3e;
+  padding: 10px 20px 14px;
+  border-bottom: 2px solid #2667cc;
+}
+.apt-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  max-width: 700px;
+}
+.apt-btn {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 7px 4px;
+  border: 1px solid #2e4460; background: transparent; color: #b8d0e8;
+  cursor: pointer; border-radius: 6px; font-family: inherit;
+  transition: background .15s, border-color .15s;
+}
+.apt-btn:hover { background: rgba(38,103,204,.35); border-color: #5580cc; }
+.apt-btn.active { background: #2667cc; border-color: #2667cc; color: #fff; }
+.apt-name { font-size: 12px; font-weight: 700; line-height: 1.3; }
+.apt-city { font-size: 9px; color: #6a90b4; margin-top: 1px; }
+.apt-btn.active .apt-city { color: #b8d8ff; }
+
+.mb-airport {
+  background: transparent; color: #9ab;
+  border: 1px solid #445; border-radius: 8px;
+  padding: 10px 12px; font-size: 15px;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .apt-grid { grid-template-columns: repeat(4, 1fr); gap: 5px; max-width: none; }
+  .apt-btn  { padding: 8px 2px; }
+  .apt-name { font-size: 12px; }
+}
+
 /* ===================== 인쇄 스타일 ===================== */
 @media print {
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }

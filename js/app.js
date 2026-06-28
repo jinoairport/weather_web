@@ -11,7 +11,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   await CONFIG.ready;   // 서버 설정 로드 완료 후 진행
   loadSettings();
   updateDocDate();
-  refreshData();
+  initAirportPanel();   // setAirport() → refreshData() 호출 포함
 
   // 5분마다 자동 새로고침 (초단기실황은 매시 갱신, 특보 변화 빠르게 반영)
   setInterval(refreshData, 5 * 60 * 1000);
@@ -449,6 +449,58 @@ function printDoc() {
     );
     win.document.close();
   });
+}
+
+/* ===================== 공항 선택 ===================== */
+function initAirportPanel() {
+  const grid = document.getElementById('apt-grid');
+  if (!grid) return;
+  AIRPORTS.forEach(apt => {
+    const btn = document.createElement('button');
+    btn.className = 'apt-btn';
+    btn.dataset.code = apt.code;
+    btn.innerHTML =
+      `<span class="apt-name">${apt.name}</span>` +
+      `<span class="apt-city">${apt.code}</span>`;
+    btn.addEventListener('click', () => setAirport(apt.code));
+    grid.appendChild(btn);
+  });
+  const saved = localStorage.getItem('airport_code') || 'PUS';
+  setAirport(saved);
+}
+
+function setAirport(code) {
+  const apt = AIRPORTS.find(a => a.code === code);
+  if (!apt) return;
+  CONFIG.NX = apt.nx;
+  CONFIG.NY = apt.ny;
+  localStorage.setItem('airport_code', code);
+
+  document.querySelectorAll('.apt-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.code === code);
+  });
+
+  const deptText  = `${apt.name}공항 토목부`;
+  const titleText = `${apt.name}공항 기상정보`;
+  setText('doc-dept',      deptText);
+  setText('doc-title-el',  titleText);
+  setText('doc-foot-dept', deptText);
+  setText('ctrl-location', apt.location);
+  const ctEl = document.getElementById('ctrl-title-el');
+  if (ctEl) ctEl.textContent = `${apt.name}공항 기상정보 시스템`;
+
+  modeManual = false;
+  refreshData();
+
+  const panel = document.getElementById('airport-panel');
+  if (panel) panel.style.display = 'none';
+}
+
+function toggleAirportPanel() {
+  const panel = document.getElementById('airport-panel');
+  if (!panel) return;
+  const isOpen = panel.style.display !== 'none';
+  panel.style.display = isOpen ? 'none' : '';
 }
 
 /* ===================== 유틸 ===================== */
