@@ -273,9 +273,13 @@ async function loadAptData(apt, chipEl) {
   }
 }
 
+/* 전역 저장 (엑셀 내보내기용) */
+var OV_DATES = [];
+
 /* 전체 로드 + 렌더 */
 async function loadAll() {
   var dates = buildOvDates();
+  OV_DATES = dates;
 
   /* 상단 날짜/시각 갱신 */
   var now = new Date();
@@ -318,6 +322,90 @@ async function loadAll() {
   }
 
   renderOvTable(allData, dates);
+}
+
+/* ===================== 엑셀 다운로드 ===================== */
+function exportToExcel() {
+  var XLSX = window.XLSX;
+  if (!XLSX) { alert('엑셀 라이브러리를 로드하는 중입니다. 잠시 후 다시 시도하세요.'); return; }
+
+  var tbl = document.getElementById('ov-tbl');
+  if (!tbl || !tbl.rows.length) {
+    alert('데이터를 먼저 로드하세요 (↺ 새로고침).'); return;
+  }
+
+  var wb = XLSX.utils.book_new();
+
+  /* 1) 제목 + 날짜 행 */
+  var dateEl = document.getElementById('ov-dateline');
+  var dateStr = dateEl ? dateEl.textContent.trim() : '';
+  var titleRows = [
+    ['공항별 기상전망', dateStr],
+    ['※ 세부 강수량은 해당일 2일전부터 조회 가능'],
+    [],
+  ];
+  var titleWs = XLSX.utils.aoa_to_sheet(titleRows);
+
+  /* 2) DOM 테이블에서 데이터 읽기 (colspan/rowspan → !merges 자동 처리) */
+  var tableWs = XLSX.utils.table_to_sheet(tbl, { raw: false });
+
+  /* 3) 두 시트를 세로로 합치기
+        — title rows가 3행이므로 table sheet의 모든 셀 주소를 3행 아래로 이동 */
+  var OFFSET = titleRows.length; // 3
+  var merged = {};
+
+  /* 제목 시트 셀 복사 */
+  Object.keys(titleWs).filter(function(k) { return k[0] !== '!'; }).forEach(function(addr) {
+    merged[addr] = titleWs[addr];
+  });
+
+  /* 테이블 시트 셀을 OFFSET 행 아래로 이동 */
+  Object.keys(tableWs).filter(function(k) { return k[0] !== '!'; }).forEach(function(addr) {
+    var ref = XLSX.utils.decode_cell(addr);
+    var newAddr = XLSX.utils.encode_cell({ r: ref.r + OFFSET, c: ref.c });
+    merged[newAddr] = tableWs[addr];
+  });
+
+  /* !ref (전체 범위) 갱신 */
+  var tblRef = XLSX.utils.decode_range(tableWs['!ref'] || 'A1');
+  merged['!ref'] = XLSX.utils.encode_range({
+    s: { r: 0, c: 0 },
+    e: { r: tblRef.e.r + OFFSET, c: Math.max(tblRef.e.c, 1) },
+  });
+
+  /* !merges 이동 */
+  var tblMerges = (tableWs['!merges'] || []).map(function(m) {
+    return {
+      s: { r: m.s.r + OFFSET, c: m.s.c },
+      e: { r: m.e.r + OFFSET, c: m.e.c },
+    };
+  });
+  merged['!merges'] = tblMerges;
+
+  /* !cols (열 너비) */
+  merged['!cols'] = [
+    { wch: 6 },   /* 공항 */
+    { wch: 12 },  /* 특보현황 */
+    { wch: 12 },  /* 구분 */
+  ];
+  /* 날짜별 2열씩 */
+  if (OV_DATES && OV_DATES.length) {
+    OV_DATES.forEach(function() {
+      merged['!cols'].push({ wch: 9 }, { wch: 9 });
+    });
+  }
+  merged['!cols'].push({ wch: 14 }); /* 특이사항 */
+
+  XLSX.utils.book_append_sheet(wb, merged, '공항별기상전망');
+
+  /* 파일명: 공항별기상전망_YYYYMMDD_HHmm.xlsx */
+  var now = new Date();
+  var p2  = function(n) { return String(n).padStart(2, '0'); };
+  var fname = '공항별기상전망_' +
+    now.getFullYear() + p2(now.getMonth()+1) + p2(now.getDate()) +
+    '_' + p2(now.getHours()) + p2(now.getMinutes()) + '.xlsx';
+
+  XLSX.writeFile(wb, fname);
 }
 
 function printOv() {
