@@ -330,8 +330,8 @@ function buildMockData(mode) {
 /* 전국 14개 공항 기상 격자 좌표 (기상청 동네예보) */
 const AIRPORTS = [
   { name: '김포',     code: 'GMP', city: '서울', location: '강서구 오쇠동', nx: 58,  ny: 127, dept: '토목조경부', icao: 'RKSS', midFcst: '11B00000', midTa: '11B10101' },
-  { name: '제주',     code: 'CJU', city: '제주', location: '용담2동',       nx: 53,  ny: 39,  dept: '토목부',     icao: 'RKPC', midFcst: '11G00000', midTa: '11G00201' },
-  { name: '김해',     code: 'PUS', city: '부산', location: '대저2동',       nx: 96,  ny: 76,  dept: '토목부',     icao: 'RKPK', midFcst: '11H20000', midTa: '11H20201' },
+  { name: '제주',     code: 'CJU', city: '제주', location: '제주시 용담2동', nx: 53,  ny: 39,  dept: '토목부',     icao: 'RKPC', midFcst: '11G00000', midTa: '11G00201' },
+  { name: '김해',     code: 'PUS', city: '부산', location: '강서구 대저2동', nx: 96,  ny: 76,  dept: '토목부',     icao: 'RKPK', midFcst: '11H20000', midTa: '11H20201' },
   { name: '대구',     code: 'TAE', city: '대구', location: '동구 지저동',   nx: 91,  ny: 92,  dept: '',           icao: 'RKTN', midFcst: '11H10000', midTa: '11H10201' },
   { name: '청주',     code: 'CJJ', city: '청주', location: '내수읍 입상리', nx: 70,  ny: 109, dept: '',           icao: 'RKTU', midFcst: '11C10000', midTa: '11C10301' },
   { name: '광주',     code: 'KWJ', city: '광주', location: '광산구 신촌동', nx: 58,  ny: 75,  dept: '',           icao: 'RKJJ', midFcst: '11F20000', midTa: '11F20501' },
