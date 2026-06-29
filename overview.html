@@ -135,6 +135,37 @@
     }
     .ov-note-cell:focus { outline: 2px dashed #2667cc; outline-offset: 1px; }
 
+    /* ===== 레이더 섹션 ===== */
+    .radar-section {
+      display: none;
+      background: #1a2a3a;
+      border-radius: 6px;
+      padding: 8px 12px 10px;
+      margin-bottom: 10px;
+    }
+    .radar-header {
+      display: flex; align-items: center; gap: 8px;
+      color: #a0c8e8; font-size: 12px; font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .radar-title-txt { font-size: 13px; color: #d0e8ff; }
+    .radar-time { font-size: 10px; color: #7098b8; font-weight: 400; }
+    .radar-img-wrap {
+      text-align: center;
+    }
+    .radar-img-wrap img {
+      max-width: 100%; max-height: 280px;
+      border-radius: 4px;
+      display: block; margin: 0 auto;
+    }
+    .radar-err { color: #8098a8; font-size: 11px; padding: 10px 0; }
+
+    /* ===== 풍향풍속 (날씨 셀 내 작은 글씨) ===== */
+    .ov-wind {
+      color: #2a5080; font-size: 9px;
+      display: block; margin-top: 1px;
+    }
+
     /* ===== 인쇄 ===== */
     @media print {
       @page { size: A3 landscape; margin: 8mm 10mm; }
@@ -161,12 +192,27 @@
 </head>
 <body>
 
+  <!-- 인증키 설정 모달 -->
+  <div id="ov-key-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:999;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:8px;padding:20px 24px;min-width:320px;box-shadow:0 4px 20px rgba(0,0,0,.3);">
+      <div style="font-weight:700;font-size:14px;margin-bottom:12px;">⚙ 기상청 오픈API 인증키</div>
+      <input type="text" id="ov-key-inp" placeholder="발급된 인증키 입력"
+        style="width:100%;padding:7px 10px;border:1px solid #aaa;border-radius:4px;font-size:12px;box-sizing:border-box;margin-bottom:10px;">
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button onclick="ovSaveKey()" style="background:#2a6090;color:#fff;border:none;border-radius:4px;padding:6px 16px;cursor:pointer;font-size:12px;">저장</button>
+        <button onclick="document.getElementById('ov-key-modal').style.display='none'" style="background:#888;color:#fff;border:none;border-radius:4px;padding:6px 14px;cursor:pointer;font-size:12px;">닫기</button>
+      </div>
+      <div style="font-size:10px;color:#888;margin-top:8px;">data.go.kr → 기상청_단기예보 조회서비스</div>
+    </div>
+  </div>
+
   <!-- 컨트롤 바 -->
   <div class="ov-bar">
     <span class="ov-bar-title">공항별 기상전망</span>
     <span class="ov-bar-sep"></span>
     <button class="ov-btn" onclick="location.href='index.html'">← 개별공항</button>
     <button class="ov-btn" onclick="loadAll()">↺ 새로고침</button>
+    <button class="ov-btn" onclick="ovOpenKeyModal()">⚙ 인증키</button>
     <button class="ov-btn primary" onclick="exportToExcel()">📥 엑셀 다운로드</button>
   </div>
 
@@ -176,6 +222,18 @@
     <div class="ov-title">공항별 기상전망</div>
     <div class="ov-dateline" id="ov-dateline">로딩 중...</div>
     <div class="ov-note">[ ※ 세부 강수량은 해당일 2일전부터 조회 가능 ]</div>
+
+    <!-- 레이더 합성 영상 -->
+    <div class="radar-section" id="radar-section">
+      <div class="radar-header">
+        <span class="radar-title-txt">전국 레이더 합성 영상</span>
+        <span class="radar-time" id="radar-time"></span>
+      </div>
+      <div class="radar-img-wrap">
+        <img id="radar-img" src="" alt="레이더 이미지 로딩 중..."
+          onerror="document.getElementById('radar-section').style.display='none'">
+      </div>
+    </div>
 
     <!-- 로딩 진행 칩 -->
     <div class="ov-progress" id="ov-progress"></div>
