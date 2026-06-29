@@ -61,14 +61,15 @@ async function kmaFetchNcstApt(nx, ny) {
   return json.response.body.items.item;
 }
 
-/* 초단기실황 파싱 → {tmp, pty} */
+/* 초단기실황 파싱 → {tmp, pty}  ※ T1H=-999 = 관측 불가 → null */
 function parseNcstApt(items) {
   var map = {};
   var arr = Array.isArray(items) ? items : [items];
   arr.forEach(function(it) { map[it.category] = it.obsrValue; });
+  var rawTmp = parseFloat(map.T1H);
   return {
-    tmp: parseFloat(map.T1H || '20'),
-    pty: parseInt(map.PTY  || '0'),
+    tmp: (!isNaN(rawTmp) && rawTmp > -99) ? rawTmp : null,
+    pty: parseInt(map.PTY || '0'),
   };
 }
 
@@ -98,7 +99,7 @@ function parseAptItems(items) {
   if (byDate[todayKey]) {
     var todayHrs = Object.keys(byDate[todayKey]).map(function(ht) {
       var v = byDate[todayKey][ht];
-      return { h: +ht.slice(0,2), pty: +(v.PTY||0), sky: +(v.SKY||1), tmp: +(v.TMP||20) };
+      return { h: +ht.slice(0,2), pty: +(v.PTY||0), sky: +(v.SKY||1), tmp: (v.TMP && +v.TMP > -99) ? +v.TMP : 20 };
     });
     if (todayHrs.length) {
       current = todayHrs.reduce(function(a, b) {
@@ -123,7 +124,7 @@ function parseAptItems(items) {
           h:   +ht.slice(0,2),
           pty: +(v.PTY||0),
           sky: +(v.SKY||1),
-          tmp: +(v.TMP||20),
+          tmp: (v.TMP && +v.TMP > -99) ? +v.TMP : 20,
           pcp: v.PCP==='강수없음'?0: v.PCP==='1mm 미만'?0.5:(parseFloat(v.PCP)||0),
           sno: v.SNO==='적설없음'?0: v.SNO==='1cm 미만'?0.5:(parseFloat(v.SNO)||0),
         };
@@ -154,19 +155,27 @@ function parseAptItems(items) {
   return { days: days, current: current };
 }
 
-/* ===================== 목업 데이터 ===================== */
+/* ===================== 목업 데이터 (API 실패 폴백) ===================== */
 function mockAptData(apt) {
   var today = new Date(); today.setHours(0,0,0,0);
   var sc    = [1,4,3,1,3,1,4];
-  var days  = Array.from({length:OV_DAYS}, function(_,i) {
+  /* API 커버리지(~72h = 3일)에 맞춰 실데이터 구간만 채우고 나머지 비움
+     → 정상 공항(실데이터)과 외관상 동일하게 유지 */
+  var REAL_DAYS = 3;
+  var days = Array.from({length:OV_DAYS}, function(_,i) {
     var d = new Date(today); d.setDate(today.getDate()+i);
+    if (i >= REAL_DAYS) {
+      /* 데이터 없는 날: tmin/tmax=null → 테이블에 '-' 표시 */
+      return { date:d, amWx:{pty:0,sky:1}, pmWx:{pty:0,sky:1},
+               tmin:null, tmax:null, pcp:0, sno:0, hasSnow:false };
+    }
     var rain = (i===1);
     return {
       date: d,
       amWx: {pty:rain?1:0, sky:sc[i%7]},
       pmWx: {pty:0,         sky:sc[i%7]},
       tmin: 17+(apt.nx%6), tmax:27+(apt.ny%5),
-      pcp: rain?5+(apt.nx%20):0, sno:0, hasSnow:false,
+      pcp:  rain?5+(apt.nx%20):0, sno:0, hasSnow:false,
     };
   });
   var cur = {pty:0, sky:3, tmp:22+(apt.nx%8)};
@@ -461,7 +470,7 @@ async function loadAll() {
       }
     });
     if (i+BATCH < AIRPORTS.length)
-      await new Promise(function(res){ setTimeout(res, 300); });
+      await new Promise(function(res){ setTimeout(res, 500); });
   }
 
   renderOvTable(allData, dates);
