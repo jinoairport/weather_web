@@ -129,16 +129,20 @@
               <span class="it-sub">&nbsp;(<span class="ce" id="v-rain-day" contenteditable="true">1일</span>)</span>
               <span class="it-sep">:</span>
               <span class="it-val ce" id="v-accum" contenteditable="true">없음</span>
+              <button class="no-print add-row-btn" onclick="addRainRow('accum-extra')">+</button>
             </div>
+            <div id="accum-extra"></div>
             <div class="it-row">
               <span class="it-lbl">ㅇ 예상강수량</span>
               <span class="it-sub">&nbsp;(<span class="ce" id="v-rain-period" contenteditable="true">1~2일</span>)</span>
               <span class="it-sep">:</span>
               <span class="it-val"><span class="ce" id="v-expected" contenteditable="true">20~60mm</span>&nbsp;<span class="ce" id="v-src" contenteditable="true">(중앙기상대)</span></span>
+              <button class="no-print add-row-btn" onclick="addRainRow('expected-extra')">+</button>
             </div>
             <div class="it-row indent-val">
-              <span class="it-val">*<span class="inline-edit" id="v-expected-sub" contenteditable="true">20~30mm</span> (공군기상대)</span>
+              <span class="it-val ce" id="v-expected-sub" contenteditable="true">*20~30mm (공군기상대)</span>
             </div>
+            <div id="expected-extra"></div>
             <div class="it-row">
               <span class="it-lbl">ㅇ 집중강수시간대</span>
               <span class="it-sep">:</span>
@@ -184,14 +188,17 @@
       <!-- ■ 강우 모드: 특보 + 조치사항 -->
       <div id="sec-rain-extra" style="display:none">
         <div class="doc-sec">
-          <div class="sec-hd">□ 특보사항 : <span class="ce" id="v-special" contenteditable="true">호우예비특보(6.2. 00~06시)</span></div>
+          <div class="sec-hd">□ 특보사항 : <span class="ce" id="v-special" contenteditable="true">호우예비특보(6.2. 00~06시)</span>
+            <button class="no-print add-row-btn" style="margin-left:8px" onclick="addRainRow('special-extra')">+</button>
+          </div>
+          <div id="special-extra"></div>
         </div>
         <div class="doc-sec">
           <div class="sec-hd">□ 조치사항</div>
           <div class="sec-body" id="measures-list">
             <div class="it-row">
               <span class="it-bull">ㅇ</span>
-              <span class="it-val">녹산·맥도펌프장 수위조절 요청 (<span class="inline-edit" id="v-pump-time" contenteditable="true">'26.6.1 20시</span> 사전배수 완료 예정)</span>
+              <span class="it-val ce" contenteditable="true">녹산·맥도펌프장 수위조절 요청 ('26.6.1 20시 사전배수 완료 예정)</span>
             </div>
             <div class="it-row">
               <span class="it-bull">ㅇ</span>

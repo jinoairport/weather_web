@@ -199,6 +199,9 @@ body {
   border-right: 1px solid #a8bcc8; cursor: pointer; color: #1e2e3e;
 }
 .dtab.active { background: #3a6080; color: #fff; }
+.dtab.sat { color: #1a6ec0; }
+.dtab.sun, .dtab.hol { color: #cc2200; }
+.dtab.active.sat, .dtab.active.sun, .dtab.active.hol { color: #fff; }
 
 /* ===================== 시간별 예보 테이블 — 날씨누리 ===================== */
 .htbl .time-cell {
@@ -242,14 +245,16 @@ body {
 /* 폭염영향 */
 .dam-cell { font-size: 9px; color: #888; }
 
-/* 날짜별 예보 주말색 */
+/* 날짜별 예보 주말/공휴일색 */
 .dtbl-date.sat  { color: #1a6ec0; } /* 토요일: 파랑 */
-.dtbl-date.sun  { color: #cc2200; } /* 일요일: 빨강 */
+.dtbl-date.sun, .dtbl-date.hol  { color: #cc2200; } /* 일요일/공휴일: 빨강 */
 
 /* 시간별 날짜+최저최고 헤더 */
 .day-stat-row td { background: #dce8f0; border-bottom: 1px solid #a8bcc8; }
 .day-stat-cell { text-align: left; padding: 4px 8px; font-size: 10px; }
 .day-stat-badge { background: #3a6080; color: white; border-radius: 3px; padding: 1px 6px; font-size: 10px; font-weight: 700; margin-right: 6px; }
+.day-stat-badge.sat { background: #1a6ec0; }
+.day-stat-badge.sun, .day-stat-badge.hol { background: #cc2200; }
 .day-stat-text  { font-size: 10px; color: #1e2e3e; font-weight: 600; }
 
 /* 폭염영향 바 */
@@ -285,6 +290,19 @@ body {
 
 /* 공군기상대 라벨 */
 .it-lbl2 { font-size: 11px; color: #555; margin-right: 6px; white-space: nowrap; }
+
+/* 행 추가 버튼 */
+.add-row-btn {
+  background: none; border: 1px solid #aaa; border-radius: 3px;
+  padding: 0 6px; line-height: 1.6; cursor: pointer; font-size: 13px;
+  color: #555; flex-shrink: 0; margin-left: 6px;
+}
+.add-row-btn:hover { background: #eef2ff; }
+.add-row-btn.rm { color: #c00; border-color: #c00; }
+.add-row-btn.rm:hover { background: #ffe0e0; }
+
+/* 추가된 행 */
+.extra-row { padding-left: 22px; }
 
 /* ===================== QR 모달 ===================== */
 .qr-modal {

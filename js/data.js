@@ -226,17 +226,37 @@ function getWeekendRange(today) {
   return { sat, sun };
 }
 
+/* ---- 공휴일 판별 ---- */
+function isHoliday(date) {
+  const y = date.getFullYear();
+  const m = date.getMonth() + 1;
+  const d = date.getDate();
+
+  // 양력 고정 법정공휴일
+  const FIXED = [[1,1],[3,1],[5,5],[6,6],[8,15],[10,3],[10,9],[12,25]];
+  if (FIXED.some(([fm,fd]) => fm===m && fd===d)) return true;
+
+  // 연도별 음력공휴일 + 대체공휴일
+  const BY_YEAR = {
+    2025: [[1,28],[1,29],[1,30],[5,5],[10,6],[10,7],[10,8]],
+    2026: [[2,16],[2,17],[2,18],[3,2],[5,24],[9,30],[10,1],[10,2]],
+    2027: [[1,27],[1,28],[1,29],[5,13],[10,19],[10,20],[10,21]],
+  };
+  const extra = BY_YEAR[y] || [];
+  return extra.some(([em,ed]) => em===m && ed===d);
+}
+
 /* ---- 목업 데이터 생성 ---- */
 function buildMockData(mode) {
   const today = new Date();
   today.setSeconds(0, 0);
 
-  /* 시간별 예보 (48시간) */
+  /* 시간별 예보 (72시간) */
   const hourlyRows = [];
   const base = new Date(today);
   base.setMinutes(0, 0, 0);
 
-  for (let h = 0; h < 48; h++) {
+  for (let h = 0; h < 72; h++) {
     const t = new Date(base);
     t.setHours(base.getHours() + h);
     const hr = t.getHours();
@@ -309,20 +329,20 @@ function buildMockData(mode) {
 
 /* 전국 14개 공항 기상 격자 좌표 (기상청 동네예보) */
 const AIRPORTS = [
-  { name: '김포',    code: 'GMP', city: '서울',  location: '강서구 오쇠동', nx: 58,  ny: 127 },
-  { name: '제주',    code: 'CJU', city: '제주',  location: '용담2동',       nx: 53,  ny: 39  },
-  { name: '김해',    code: 'PUS', city: '부산',  location: '대저2동',       nx: 96,  ny: 76  },
-  { name: '대구',    code: 'TAE', city: '대구',  location: '동구 지저동',   nx: 91,  ny: 92  },
-  { name: '청주',    code: 'CJJ', city: '청주',  location: '흥덕구 내수읍', nx: 70,  ny: 109 },
-  { name: '광주',    code: 'KWJ', city: '광주',  location: '광산구 신촌동', nx: 58,  ny: 75  },
-  { name: '여수',    code: 'RSU', city: '여수',  location: '율촌면',        nx: 73,  ny: 69  },
-  { name: '무안',    code: 'MWX', city: '전남',  location: '무안군 망운면', nx: 51,  ny: 72  },
-  { name: '포항경주', code: 'KPO', city: '포항', location: '남구 동해면',   nx: 104, ny: 95  },
-  { name: '군산',    code: 'KUV', city: '전북',  location: '군산시 옥서면', nx: 55,  ny: 92  },
-  { name: '원주',    code: 'WJU', city: '강원',  location: '원주시 호저면', nx: 78,  ny: 125 },
-  { name: '사천',    code: 'HIN', city: '경남',  location: '사천시 사남면', nx: 81,  ny: 74  },
-  { name: '양양',    code: 'YNY', city: '강원',  location: '양양군 손양면', nx: 90,  ny: 139 },
-  { name: '울산',    code: 'USN', city: '울산',  location: '북구 신현동',   nx: 103, ny: 86  },
+  { name: '김포',    code: 'GMP', city: '서울',  location: '강서구 오쇠동', nx: 58,  ny: 127, dept: '토목조경부' },
+  { name: '제주',    code: 'CJU', city: '제주',  location: '용담2동',       nx: 53,  ny: 39,  dept: '토목부'    },
+  { name: '김해',    code: 'PUS', city: '부산',  location: '대저2동',       nx: 96,  ny: 76,  dept: '토목부'    },
+  { name: '대구',    code: 'TAE', city: '대구',  location: '동구 지저동',   nx: 91,  ny: 92,  dept: ''          },
+  { name: '청주',    code: 'CJJ', city: '청주',  location: '흥덕구 내수읍', nx: 70,  ny: 109, dept: ''          },
+  { name: '광주',    code: 'KWJ', city: '광주',  location: '광산구 신촌동', nx: 58,  ny: 75,  dept: ''          },
+  { name: '여수',    code: 'RSU', city: '여수',  location: '율촌면',        nx: 73,  ny: 69,  dept: ''          },
+  { name: '무안',    code: 'MWX', city: '전남',  location: '무안군 망운면', nx: 51,  ny: 72,  dept: ''          },
+  { name: '포항경주', code: 'KPO', city: '포항', location: '남구 동해면',   nx: 104, ny: 95,  dept: ''          },
+  { name: '군산',    code: 'KUV', city: '전북',  location: '군산시 옥서면', nx: 55,  ny: 92,  dept: ''          },
+  { name: '원주',    code: 'WJU', city: '강원',  location: '원주시 호저면', nx: 78,  ny: 125, dept: ''          },
+  { name: '사천',    code: 'HIN', city: '경남',  location: '사천시 사남면', nx: 81,  ny: 74,  dept: ''          },
+  { name: '양양',    code: 'YNY', city: '강원',  location: '양양군 손양면', nx: 90,  ny: 139, dept: ''          },
+  { name: '울산',    code: 'USN', city: '울산',  location: '북구 신현동',   nx: 103, ny: 86,  dept: ''          },
 ];
 
 /* 전역 데이터 저장소 */

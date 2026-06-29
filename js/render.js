@@ -50,9 +50,9 @@ function renderDailyTable(dailyRows) {
     } else if (ds === morStr) {
       cls += ' morae'; style = 'colspan="2"';
     } else {
-      // 토요일=파랑, 일요일=빨강
       if (dow === 6) cls += ' sat';
-      if (dow === 0) cls += ' sun';
+      else if (dow === 0) cls += ' sun';
+      else if (isHoliday(r.date)) cls += ' hol';
     }
 
     const isFirstThree = (ds === todayStr || ds === tomStr || ds === morStr);
@@ -137,9 +137,9 @@ function renderHourlyTable(hourlyRows, step, mode) {
   const tbl = document.getElementById('hourly-tbl');
   if (!tbl) return;
 
-  // step 간격으로 필터, 최대 48시간 분량 — 원본 인덱스 추적
+  // step 간격으로 필터, 최대 72시간 분량 — 원본 인덱스 추적
   const displayIdxs = [];
-  for (let i = 0; i < hourlyRows.length && displayIdxs.length < Math.ceil(48 / step); i += step) {
+  for (let i = 0; i < hourlyRows.length && displayIdxs.length < Math.ceil(72 / step); i += step) {
     displayIdxs.push(i);
   }
   const rows = displayIdxs.map(i => hourlyRows[i]);
@@ -174,7 +174,9 @@ function renderHourlyTable(hourlyRows, step, mode) {
     const minStr = (g.date.toDateString() === todayStr) ? '-' : (gMin !== null ? gMin + '℃' : '-');
     const maxStr = gMax !== null ? gMax + '℃' : '-';
     html += `<td class="day-stat-cell" colspan="${g.count}">`;
-    html += `<span class="day-stat-badge">${fmtMDDow(g.date)}</span>`;
+    const bdow = g.date.getDay();
+    const bCls = isHoliday(g.date) ? ' hol' : (bdow===6?' sat':(bdow===0?' sun':''));
+    html += `<span class="day-stat-badge${bCls}">${fmtMDDow(g.date)}</span>`;
     html += `<span class="day-stat-text">최저 ${minStr} / 최고 ${maxStr}</span>`;
     html += '</td>';
   }
@@ -365,9 +367,11 @@ function buildDateGroups(rows) {
 function renderDateTabs(dates) {
   const el = document.getElementById('date-tabs');
   if (!el) return;
-  el.innerHTML = dates.map((d, i) =>
-    `<div class="dtab no-print${i === 0 ? ' active' : ''}" onclick="scrollToDate(${i})">${fmtMDDow(d)}</div>`
-  ).join('');
+  el.innerHTML = dates.map((d, i) => {
+    const dow = d.getDay();
+    const extra = isHoliday(d) ? ' hol' : (dow===6?' sat':(dow===0?' sun':''));
+    return `<div class="dtab no-print${i===0?' active':''}${extra}" onclick="scrollToDate(${i})">${fmtMDDow(d)}</div>`;
+  }).join('');
 }
 
 function scrollToDate(idx) {

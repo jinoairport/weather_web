@@ -134,12 +134,21 @@ function updateNormalSummary(data) {
     const fShort = (d) => `${d.getMonth()+1}. ${d.getDate()}.`;
     let prefix, from, to;
     if (dow === 5) {
-      // 금요일: 이번주 주말 예보
+      // 금요일: 이번주 주말 예보 (내일 토~일)
       prefix = '이번주 주말'; from = sat; to = sun;
-    } else if (dow === 6 || dow === 0) {
-      // 토·일: 금주 주말 (오늘~일요일)
+    } else if (dow === 6) {
+      // 토요일: 금주 주말 (오늘~내일 일요일)
       prefix = '금주 주말'; from = today;
-      to = dow === 6 ? sun : today;
+      to = new Date(today); to.setDate(today.getDate() + 1);
+    } else if (dow === 0) {
+      if (today.getHours() < 12) {
+        // 일요일 오전: 금주 주말 (오늘만)
+        prefix = '금주 주말'; from = today; to = today;
+      } else {
+        // 일요일 오후: 평일처럼 금주 (오늘~다음 금요일)
+        prefix = '금주'; from = today;
+        to = new Date(today); to.setDate(today.getDate() + 5);
+      }
     } else {
       // 월~목: 금주 단기 (오늘~이번 주 금요일)
       prefix = '금주'; from = today;
@@ -158,13 +167,20 @@ function updateNormalSummary(data) {
     // 금요일: 토~일
     periodFrom = sat; periodTo = sun;
   } else if (dow === 6) {
-    // 토요일: 오늘~일
-    periodFrom = todayStart; periodTo = sun;
+    // 토요일: 오늘~내일 일요일
+    periodFrom = todayStart;
+    periodTo = new Date(today); periodTo.setDate(today.getDate() + 1);
   } else if (dow === 0) {
-    // 일요일: 오늘만
-    periodFrom = todayStart; periodTo = today;
+    if (today.getHours() < 12) {
+      // 일요일 오전: 오늘만
+      periodFrom = todayStart; periodTo = today;
+    } else {
+      // 일요일 오후: 오늘~다음 금요일
+      periodFrom = todayStart;
+      periodTo = new Date(today); periodTo.setDate(today.getDate() + 5);
+    }
   } else {
-    // 월~목: 오늘 0시 ~ 이번 주 금요일 (기온 범위 누락 방지)
+    // 월~목: 오늘 0시 ~ 이번 주 금요일
     periodFrom = todayStart;
     periodTo   = new Date(today);
     periodTo.setDate(today.getDate() + (5 - dow));
@@ -309,6 +325,19 @@ function addMeasure() {
   div.className = 'it-row';
   div.innerHTML = `<span class="it-bull">ㅇ</span><span class="it-val ce" contenteditable="true">내용을 입력하세요</span>`;
   list.appendChild(div);
+  div.querySelector('[contenteditable]').focus();
+}
+
+/* ===================== 강우 모드 행 추가 ===================== */
+function addRainRow(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const div = document.createElement('div');
+  div.className = 'it-row extra-row';
+  div.innerHTML =
+    '<span class="it-val ce" contenteditable="true" style="flex:1;min-width:120px"></span>' +
+    '<button class="no-print add-row-btn rm" onclick="this.parentElement.remove()">×</button>';
+  container.appendChild(div);
   div.querySelector('[contenteditable]').focus();
 }
 
@@ -480,7 +509,7 @@ function setAirport(code) {
     b.classList.toggle('active', b.dataset.code === code);
   });
 
-  const deptText  = `${apt.name}공항 토목부`;
+  const deptText  = apt.dept ? `${apt.name}공항 ${apt.dept}` : `${apt.name}공항`;
   const titleText = `${apt.name}공항 기상정보`;
   setText('doc-dept',      deptText);
   setText('doc-title-el',  titleText);
