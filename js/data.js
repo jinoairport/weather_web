@@ -333,16 +333,16 @@ const AIRPORTS = [
   { name: '제주',     code: 'CJU', city: '제주', location: '용담2동',       nx: 53,  ny: 39,  dept: '토목부',     icao: 'RKPC', midFcst: '11G00000', midTa: '11G00201' },
   { name: '김해',     code: 'PUS', city: '부산', location: '대저2동',       nx: 96,  ny: 76,  dept: '토목부',     icao: 'RKPK', midFcst: '11H20000', midTa: '11H20201' },
   { name: '대구',     code: 'TAE', city: '대구', location: '동구 지저동',   nx: 91,  ny: 92,  dept: '',           icao: 'RKTN', midFcst: '11H10000', midTa: '11H10201' },
-  { name: '청주',     code: 'CJJ', city: '청주', location: '흥덕구 내수읍', nx: 70,  ny: 109, dept: '',           icao: 'RKTU', midFcst: '11C10000', midTa: '11C10301' },
+  { name: '청주',     code: 'CJJ', city: '청주', location: '내수읍 입상리', nx: 70,  ny: 109, dept: '',           icao: 'RKTU', midFcst: '11C10000', midTa: '11C10301' },
   { name: '광주',     code: 'KWJ', city: '광주', location: '광산구 신촌동', nx: 58,  ny: 75,  dept: '',           icao: 'RKJJ', midFcst: '11F20000', midTa: '11F20501' },
   { name: '여수',     code: 'RSU', city: '여수', location: '율촌면',        nx: 73,  ny: 69,  dept: '',           icao: 'RKJY', midFcst: '11F20000', midTa: '11F20602' },
   { name: '무안',     code: 'MWX', city: '전남', location: '무안군 망운면', nx: 51,  ny: 72,  dept: '',           icao: 'RKJB', midFcst: '11F20000', midTa: '11F20401' },
-  { name: '포항경주', code: 'KPO', city: '포항', location: '남구 동해면',   nx: 104, ny: 95,  dept: '',           icao: 'RKTH', midFcst: '11H10000', midTa: '11H10101' },
+  { name: '포항경주', code: 'KPO', city: '포항', location: '동해면 도구리',  nx: 104, ny: 95,  dept: '',           icao: 'RKTH', midFcst: '11H10000', midTa: '11H10101' },
   { name: '군산',     code: 'KUV', city: '전북', location: '군산시 옥서면', nx: 55,  ny: 92,  dept: '',           icao: 'RKJK', midFcst: '11F10000', midTa: '11F10101' },
-  { name: '원주',     code: 'WJU', city: '강원', location: '원주시 호저면', nx: 78,  ny: 125, dept: '',           icao: 'RKTL', midFcst: '11D10000', midTa: '11D10201' },
+  { name: '원주',     code: 'WJU', city: '강원', location: '호저면 의관리', nx: 78,  ny: 125, dept: '',           icao: 'RKTL', midFcst: '11D10000', midTa: '11D10201' },
   { name: '사천',     code: 'HIN', city: '경남', location: '사천시 사천읍', nx: 81,  ny: 72,  dept: '',           icao: 'RKPS', midFcst: '11H20000', midTa: '11H20701' },
   { name: '양양',     code: 'YNY', city: '강원', location: '양양군 손양면', nx: 90,  ny: 139, dept: '',           icao: 'RKNY', midFcst: '11D20000', midTa: '11D20401' },
-  { name: '울산',     code: 'USN', city: '울산', location: '북구 신현동',   nx: 103, ny: 86,  dept: '',           icao: 'RKPU', midFcst: '11H20000', midTa: '11H20101' },
+  { name: '울산',     code: 'USN', city: '울산', location: '북구 화봉동',   nx: 103, ny: 86,  dept: '',           icao: 'RKPU', midFcst: '11H20000', midTa: '11H20101' },
 ];
 
 /* 전역 데이터 저장소 */
