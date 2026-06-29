@@ -340,7 +340,7 @@ const AIRPORTS = [
   { name: '포항경주', code: 'KPO', city: '포항', location: '남구 동해면',   nx: 104, ny: 95,  dept: '',           icao: 'RKTH', midFcst: '11H10000', midTa: '11H10101' },
   { name: '군산',     code: 'KUV', city: '전북', location: '군산시 옥서면', nx: 55,  ny: 92,  dept: '',           icao: 'RKJK', midFcst: '11F10000', midTa: '11F10101' },
   { name: '원주',     code: 'WJU', city: '강원', location: '원주시 호저면', nx: 78,  ny: 125, dept: '',           icao: 'RKTL', midFcst: '11D10000', midTa: '11D10201' },
-  { name: '사천',     code: 'HIN', city: '경남', location: '사천시 사남면', nx: 81,  ny: 74,  dept: '',           icao: 'RKPS', midFcst: '11H20000', midTa: '11H20701' },
+  { name: '사천',     code: 'HIN', city: '경남', location: '사천시 사천읍', nx: 81,  ny: 72,  dept: '',           icao: 'RKPS', midFcst: '11H20000', midTa: '11H20701' },
   { name: '양양',     code: 'YNY', city: '강원', location: '양양군 손양면', nx: 90,  ny: 139, dept: '',           icao: 'RKNY', midFcst: '11D20000', midTa: '11D20401' },
   { name: '울산',     code: 'USN', city: '울산', location: '북구 신현동',   nx: 103, ny: 86,  dept: '',           icao: 'RKPU', midFcst: '11H20000', midTa: '11H20101' },
 ];
