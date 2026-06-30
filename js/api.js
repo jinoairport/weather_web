@@ -207,7 +207,37 @@ async function fetchWeatherWarning(_retry = true) {
   return filterByCity(arr, city);
 }
 
-let _lastGoodData = null;
+/* localStorage 캐시 — 페이지 재로드 시에도 이전 데이터 복원 */
+const _LS_KEY = 'kma_wx_cache';
+const _LS_TTL = 60 * 60 * 1000; // 1시간 이내 캐시 유효
+
+function _saveCache(data) {
+  try {
+    localStorage.setItem(_LS_KEY, JSON.stringify({
+      baseTimeDisplay: data.baseTimeDisplay,
+      weatherWarnings: data.weatherWarnings || [],
+      hourlyRows: data.hourlyRows.map(r => ({ ...r, time: r.time.toISOString() })),
+      dailyRows:  data.dailyRows.map(r =>  ({ ...r, date: r.date.toISOString() })),
+      _at: Date.now(),
+    }));
+  } catch(e) {}
+}
+
+function _loadCache() {
+  try {
+    const raw = localStorage.getItem(_LS_KEY);
+    if (!raw) return null;
+    const c = JSON.parse(raw);
+    if (Date.now() - c._at > _LS_TTL) return null;
+    c.hourlyRows = c.hourlyRows.map(r => ({ ...r, time: new Date(r.time) }));
+    c.dailyRows  = c.dailyRows.map(r =>  ({ ...r, date: new Date(r.date) }));
+    c.generatedAt = new Date(c._at);
+    c.isReal = true;
+    return c;
+  } catch(e) { return null; }
+}
+
+let _lastGoodData = _loadCache();
 
 /* 메인 데이터 페치 */
 async function fetchWeatherData(mode) {
@@ -233,6 +263,7 @@ async function fetchWeatherData(mode) {
     const ncstData = ncst.status === 'fulfilled' ? ncst.value : null;
 
     _lastGoodData = { dailyRows, hourlyRows, generatedAt: new Date(), isReal: true, baseTimeDisplay, weatherWarnings, ncstData };
+    _saveCache(_lastGoodData);
     return _lastGoodData;
   } catch (err) {
     console.warn('[KMA API 오류]', err.message);
