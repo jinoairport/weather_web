@@ -243,7 +243,10 @@ async function loadRadarImage() {
     if (!items) return;
     var arr    = Array.isArray(items) ? items : [items];
     var latest = arr[arr.length - 1];
-    var imgFile = latest.rdrImg || latest['rdr-img-file'] || latest.imgFile || '';
+    console.log('[레이더] API 응답 샘플:', JSON.stringify(latest));
+    var rawImg  = latest.rdrImg || latest.rdrImgPath || latest['rdr-img-file'] || latest.cmpPath || latest.imgFile || '';
+    var imgFile = typeof rawImg === 'string' ? rawImg.trim()
+                : typeof rawImg === 'object' && rawImg ? String(Object.values(rawImg)[0] || '') : '';
     if (!imgFile) return;
     var imgUrl = imgFile.startsWith('http')
       ? imgFile
