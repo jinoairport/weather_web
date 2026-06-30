@@ -149,7 +149,7 @@ function renderHourlyTable(hourlyRows, step, mode) {
   renderDateTabs(groups.map(g => g.date));
 
   const N       = rows.length;
-  const showPcp = mode === 'rain';
+  const showPcp = mode === 'rain' || rows.some(r => r.pcp > 0);
   const showDam = CONFIG.SHOW_DAM && mode === 'normal';
   const colW    = step === 1 ? 34 : 46;
 

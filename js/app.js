@@ -223,12 +223,11 @@ function updateNormalSummary(data) {
 /* ===================== 예상강수량 범위 표현 ===================== */
 function pcpRange(mm) {
   if (mm <= 0) return '없음';
+  if (mm < 20) return `${Math.round(mm)}mm`;   // 20mm 미만: 정확한 수치
   if (mm < 100) {
-    // 10mm 단위 반올림 후 ±10mm 범위
     const center = Math.round(mm / 10) * 10;
     return `${Math.max(0, center - 10)}~${center + 10}mm`;
   } else {
-    // 100mm 이상: 아래 10mm 내림-10, 위 10mm 올림+10 (약 30mm 폭)
     const lo = Math.floor(mm / 10) * 10 - 10;
     const hi = Math.ceil(mm  / 10) * 10 + 10;
     return `${lo}~${hi}mm`;
