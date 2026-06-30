@@ -312,11 +312,12 @@ function parseAptItems(items) {
 
       var allH = Object.keys(hourMap).map(function(ht) {
         var v = hourMap[ht];
+        var rawTmp = v.TMP !== undefined && v.TMP !== null ? +v.TMP : NaN;
         return {
           h:   +ht.slice(0,2),
           pty: +(v.PTY||0),
           sky: +(v.SKY||1),
-          tmp: (v.TMP && +v.TMP > -99) ? +v.TMP : 20,
+          tmp: (!isNaN(rawTmp) && rawTmp > -99) ? rawTmp : null,
           pcp: v.PCP==='강수없음'?0: v.PCP==='1mm 미만'?0.5:(parseFloat(v.PCP)||0),
           sno: v.SNO==='적설없음'?0: v.SNO==='1cm 미만'?0.5:(parseFloat(v.SNO)||0),
         };
@@ -332,12 +333,13 @@ function parseAptItems(items) {
         return hrs.reduce(function(a,b){return b.sky>a.sky?b:a;});
       };
 
+      var tmpVals = allH.map(function(r){return r.tmp;}).filter(function(t){return t !== null;});
       return {
         date,
         amWx:    repWx(amH.length ? amH : allH.filter(function(r){return r.h<12;})),
         pmWx:    repWx(pmH.length ? pmH : allH.filter(function(r){return r.h>=12;})),
-        tmin:    allH.length ? Math.min.apply(null,allH.map(function(r){return r.tmp;})) : null,
-        tmax:    allH.length ? Math.max.apply(null,allH.map(function(r){return r.tmp;})) : null,
+        tmin:    tmpVals.length ? Math.min.apply(null, tmpVals) : null,
+        tmax:    tmpVals.length ? Math.max.apply(null, tmpVals) : null,
         pcp:     allH.reduce(function(s,r){return s+r.pcp;},0),
         sno:     allH.reduce(function(s,r){return s+r.sno;},0),
         hasSnow: allH.some(function(r){return r.pty===3;}),
@@ -481,20 +483,22 @@ async function prefetchMidTerm() {
     return { fcstCache: fcstCache, taCache: taCache };
   }
 
+  /* 이전 발표 시각 계산 (재시도용) */
+  var p2    = function(n){ return String(n).padStart(2,'0'); };
+  var prevD = new Date(mt.issuanceDate);
+  var prevBase;
+  if (mt.base === 18) { prevBase = 6; }
+  else                { prevD.setDate(prevD.getDate()-1); prevBase = 18; }
+  var prevTmFc = '' + prevD.getFullYear() + p2(prevD.getMonth()+1) + p2(prevD.getDate()) + p2(prevBase) + '00';
+
   /* 1차 시도: 최신 발표 시각 */
   var cache = await fetchAll(mt.tmFc);
   var taHit = Object.values(cache.taCache).filter(Boolean).length;
 
-  /* 데이터 없으면 이전 발표 시각으로 재시도 (미발표·준비 중 대응) */
   if (taHit === 0) {
-    var p2   = function(n){ return String(n).padStart(2,'0'); };
-    var prevD = new Date(mt.issuanceDate);
-    var prevBase;
-    if (mt.base === 18) { prevBase = 6; }
-    else                { prevD.setDate(prevD.getDate()-1); prevBase = 18; }
-    var prevTmFc = '' + prevD.getFullYear() + p2(prevD.getMonth()+1) + p2(prevD.getDate()) + p2(prevBase) + '00';
-    var cache2   = await fetchAll(prevTmFc);
-    var taHit2   = Object.values(cache2.taCache).filter(Boolean).length;
+    /* 전체 실패 → 이전 발표로 전체 재시도 */
+    var cache2 = await fetchAll(prevTmFc);
+    var taHit2 = Object.values(cache2.taCache).filter(Boolean).length;
     if (taHit2 > 0) {
       cache = cache2;
       mt.issuanceDate = prevD;
@@ -504,6 +508,23 @@ async function prefetchMidTerm() {
     }
   } else {
     console.log('[중기예보] 기온 조회 성공:', taHit + '/' + taIds.length + '개 지역 (tmFc=' + mt.tmFc + ')');
+
+    /* 일부 지역 실패 → 해당 지역만 이전 발표로 개별 재시도 */
+    var failedTaIds = taIds.filter(function(id){ return !cache.taCache[id]; });
+    if (failedTaIds.length) {
+      console.log('[중기예보] 일부 지역 재시도 (' + prevTmFc + '):', failedTaIds.join(', '));
+      var retries = await Promise.all(failedTaIds.map(function(id) {
+        return kmaFetchMidRaw('getMidTa', id, prevTmFc)
+          .then(function(v){ return {id: id, v: v}; })
+          .catch(function(){ return {id: id, v: null}; });
+      }));
+      retries.forEach(function(r){
+        if (r.v) {
+          cache.taCache[r.id] = r.v;
+          console.log('[중기예보] 개별 재시도 성공:', r.id);
+        }
+      });
+    }
   }
 
   return { fcstCache: cache.fcstCache, taCache: cache.taCache, issuanceDate: mt.issuanceDate };
