@@ -278,13 +278,12 @@ function updateRainSummary(data) {
   const tomorrow = new Date(today);
   tomorrow.setDate(today.getDate() + 1);
 
-  const todayD    = today.getDate();
-  const tomorrowD = tomorrow.getDate();
   const todayDow  = DAYS_KO[today.getDay()];
+  const fmtDate   = d => `${d.getMonth()+1}.${d.getDate()}(${DAYS_KO[d.getDay()]})`;
 
   // 날짜 표시 필드
-  setText('v-rain-day', `${todayD}일`);
-  setText('v-rain-period', `${todayD}~${tomorrowD}일`);
+  setText('v-rain-day', fmtDate(today));
+  setText('v-rain-period', `${fmtDate(today)}~${fmtDate(tomorrow)}`);
 
   // 누적강수량: 오늘 0시 ~ 현재 시점까지 실제 경과 시간만 합산
   const pastRows = data.hourlyRows.filter(r =>
