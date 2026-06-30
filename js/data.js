@@ -341,7 +341,7 @@ const AIRPORTS = [
   { name: '여수',     code: 'RSU', city: '여수', location: '율촌면',        nx: 73,  ny: 69,  dept: '',           icao: 'RKJY', midFcst: '11F20000', midTa: '11F20602', wrnCity: '여수',  wrnKeys: ['여수', '전라남'] },
   { name: '무안',     code: 'MWX', city: '전남', location: '무안군 망운면', nx: 51,  ny: 72,  dept: '',           icao: 'RKJB', midFcst: '11F20000', midTa: '11F20401', wrnCity: '무안',  wrnKeys: ['무안', '목포', '전라남'] },
   { name: '포항경주', code: 'KPO', city: '포항', location: '동해면 도구리',  nx: 104, ny: 95,  dept: '',           icao: 'RKTH', midFcst: '11H10000', midTa: '11H10101', wrnCity: '포항',  wrnKeys: ['포항', '경주', '경상북'] },
-  { name: '군산',     code: 'KUV', city: '전북', location: '군산시 옥서면', nx: 55,  ny: 92,  dept: '',           icao: 'RKJK', midFcst: '11F10000', midTa: '11F10101', wrnCity: '군산',  wrnKeys: ['군산', '전라북'] },
+  { name: '군산',     code: 'KUV', city: '전북', location: '군산시 옥서면', nx: 55,  ny: 92,  dept: '',           icao: 'RKJK', midFcst: '11F10000', midTa: '11F10201', wrnCity: '군산',  wrnKeys: ['군산', '전라북'] },
   { name: '원주',     code: 'WJU', city: '강원', location: '호저면 의관리', nx: 78,  ny: 125, dept: '',           icao: 'RKTL', midFcst: '11D10000', midTa: '11D10201', wrnCity: '원주',  wrnKeys: ['원주', '강원'] },
   { name: '사천',     code: 'HIN', city: '경남', location: '사천시 사천읍', nx: 81,  ny: 72,  dept: '',           icao: 'RKPS', midFcst: '11H20000', midTa: '11H20701', wrnCity: '사천',  wrnKeys: ['사천', '경상남'] },
   { name: '양양',     code: 'YNY', city: '강원', location: '양양군 손양면', nx: 90,  ny: 139, dept: '',           icao: 'RKNY', midFcst: '11D20000', midTa: '11D20401', wrnCity: '양양',  wrnKeys: ['양양', '강원'] },
