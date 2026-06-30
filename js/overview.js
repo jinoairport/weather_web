@@ -666,26 +666,55 @@ function buildAptWarnMap(list) {
   return map;
 }
 
-/* 특보 배열 → ov-warn-cell innerHTML */
+/* 특보 배열 → ov-note-cell innerHTML */
 function renderWarnCell(warns) {
-  if (!warns || !warns.length) return '-';
+  if (!warns || !warns.length) return '';
   return warns.map(function(w) {
     var label = (w.type || '') + (w.level || '');
     var time  = '';
-    if (w.start && w.end)       time = w.start + '~' + w.end;
-    else if (w.end)             time = '~' + w.end;
-    else if (w.start)           time = w.start + '~';
+    if (w.start && w.end)  time = w.start + '~' + w.end;
+    else if (w.end)        time = '~' + w.end;
+    else if (w.start)      time = w.start + '~';
     return label + (time ? '<br><small style="font-size:0.75em;font-weight:normal">' + time + '</small>' : '');
   }).join('<br>');
 }
 
-/* 렌더된 테이블의 ov-warn-cell 에 특보 내용 주입 */
+/* ov-note-cell 편집 이벤트 바인딩 + localStorage 복원
+   ‐ 새로고침해도 수동 편집 내용 유지
+   ‐ 셀 완전히 비우면 수동 override 해제 (다음 로드 시 API 데이터로 복원) */
+function bindNoteCells() {
+  document.querySelectorAll('.ov-note-cell[data-code]').forEach(function(cell) {
+    var code = cell.dataset.code;
+    try {
+      var saved = localStorage.getItem('ov-note-' + code);
+      if (saved !== null) {
+        cell.innerHTML  = saved;
+        cell.dataset.manual = '1';
+      }
+    } catch(e) {}
+    cell.addEventListener('blur', function() {
+      var content = cell.innerHTML.trim();
+      try {
+        if (!content) {
+          localStorage.removeItem('ov-note-' + code);
+          cell.dataset.manual = '';
+        } else {
+          localStorage.setItem('ov-note-' + code, content);
+          cell.dataset.manual = '1';
+        }
+      } catch(e) {}
+    });
+  });
+}
+
+/* 렌더된 테이블의 ov-note-cell 에 특보 내용 주입
+   ‐ data-manual='1' 셀(수동 편집 우선)은 건너뜀 */
 function applyWarnCells(warnMap) {
-  document.querySelectorAll('.ov-warn-cell[data-code]').forEach(function(cell) {
+  document.querySelectorAll('.ov-note-cell[data-code]').forEach(function(cell) {
+    if (cell.dataset.manual === '1') return;
     var code  = cell.dataset.code;
     var warns = warnMap[code] || [];
     cell.innerHTML = renderWarnCell(warns);
-    /* 배경색: 경보 > 주의보 > 없음 */
     var hasAlert  = warns.some(function(w){ return w.level === '경보'; });
     var hasNotice = warns.some(function(w){ return w.level === '주의보'; });
     cell.style.backgroundColor = hasAlert ? '#ffd6d6' : hasNotice ? '#fffbe6' : '';
@@ -753,7 +782,7 @@ function renderOvTable(allData, dates) {
     /* ── 날씨 행 ── */
     h += '<tr class="ov-wx-row">';
     h += '<td class="ov-apt-cell" rowspan="3">' + apt.name + '</td>';
-    h += '<td class="ov-warn-cell" data-code="' + apt.code + '" rowspan="3" contenteditable="true">-</td>';
+    h += '<td class="ov-warn-cell" rowspan="3" contenteditable="true">-</td>';
     h += '<td class="ov-label">날씨</td>';
     dates.forEach(function(d) {
       var isTd = d.toDateString() === todayStr;
@@ -777,7 +806,7 @@ function renderOvTable(allData, dates) {
       h += '<td class="ov-c' + (isTd?' ov-cur':'') + '">' + amTxt + '</td>';
       h += '<td class="ov-c' + (isTd?' ov-cur':'') + '">' + pmTxt + '</td>';
     });
-    h += '<td class="ov-note-cell" rowspan="3" contenteditable="true"></td></tr>';
+    h += '<td class="ov-note-cell" data-code="' + apt.code + '" rowspan="3" contenteditable="true"></td></tr>';
 
     /* ── 최저/최고기온 행 ── */
     h += '<tr class="ov-tmp-row">';
@@ -818,6 +847,7 @@ function renderOvTable(allData, dates) {
 
   h += '</tbody>';
   tbl.innerHTML = h;
+  bindNoteCells(); /* localStorage 복원 + blur 저장 이벤트 바인딩 */
 }
 
 /* ===================== 단일 공항 데이터 로드 ===================== */
