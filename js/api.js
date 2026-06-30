@@ -156,26 +156,28 @@ async function fetchUltraNcst() {
   };
 }
 
-/* 현재 선택 공항의 특보 매칭 키워드 반환 */
-function getCurrentWrnCity() {
+/* 현재 선택 공항의 특보 매칭 키워드 배열 반환 (wrnKeys → wrnCity 순 fallback) */
+function getCurrentWrnKeys() {
   const code = localStorage.getItem('airport_code') || 'PUS';
   const apt  = (typeof AIRPORTS !== 'undefined') ? AIRPORTS.find(a => a.code === code) : null;
-  return apt?.wrnCity || '부산';
+  if (!apt) return ['부산'];
+  return (apt.wrnKeys && apt.wrnKeys.length) ? apt.wrnKeys : [apt.wrnCity || '부산'];
 }
 
-/* 특보/예비특보 공통 필터 (wrnCity 포함 여부) */
-function filterByCity(arr, city) {
-  return arr.filter(w =>
-    (w.wrnStnm  && w.wrnStnm.includes(city))  ||
-    (w.area     && w.area.includes(city))      ||
-    (w.areaFc   && w.areaFc.includes(city))    ||
-    (w.wrnTitle && w.wrnTitle.includes(city))
-  );
+/* 특보/예비특보 공통 필터 (wrnKeys 중 하나라도 포함 여부) */
+function filterByCity(arr, keys) {
+  var keyArr = Array.isArray(keys) ? keys : [keys];
+  return arr.filter(function(w) {
+    var targets = [w.wrnStnm, w.area, w.areaFc, w.wrnTitle];
+    return keyArr.some(function(kw) {
+      return kw && targets.some(function(t) { return t && t.includes(kw); });
+    });
+  });
 }
 
 /* 기상청 기상특보 조회 (선택 공항 소재지 기준) */
 async function fetchWeatherWarning() {
-  const city = getCurrentWrnCity();
+  const city = getCurrentWrnKeys();
   const url  = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
   url.searchParams.set('serviceKey', CONFIG.API_KEY);
   url.searchParams.set('pageNo',    '1');
@@ -196,7 +198,7 @@ async function fetchWeatherWarning() {
 
 /* 기상청 예비특보 조회 (선택 공항 소재지 기준) */
 async function fetchPreWarning() {
-  const city = getCurrentWrnCity();
+  const city = getCurrentWrnKeys();
   const url  = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getPwnWrnMsg');
   url.searchParams.set('serviceKey', CONFIG.API_KEY);
   url.searchParams.set('pageNo',    '1');

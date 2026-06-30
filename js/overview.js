@@ -710,15 +710,17 @@ var WRN_PCP_TYPES = { '호우': 1, '대설': 1, '강설': 1, '태풍': 1 };
 
 /* 특보 list → 공항별 {pcpMap, othMap} 두 맵으로 분류
    pcpMap : 특보현황 칸 (호우·대설·강설·태풍)
-   othMap : 특이사항 칸 (폭염·강풍·뇌우·안개·한파·황사·건조 등) */
+   othMap : 특이사항 칸 (폭염·강풍·뇌우·안개·한파·황사·건조 등)
+   wrnKeys 배열로 매칭 — 광역시도 이름(충청북, 강원 등)도 포함 */
 function buildAptWarnMaps(list) {
   var pcpMap = {}, othMap = {};
   AIRPORTS.forEach(function(apt) { pcpMap[apt.code] = []; othMap[apt.code] = []; });
   (list || []).forEach(function(w) {
     var region = w.region || '';
     AIRPORTS.forEach(function(apt) {
-      var kw = apt.wrnCity || '';
-      if (!kw || !region.includes(kw)) return;
+      var keys = apt.wrnKeys && apt.wrnKeys.length ? apt.wrnKeys : [apt.wrnCity || ''];
+      var matched = keys.some(function(kw) { return kw && region.includes(kw); });
+      if (!matched) return;
       var map = WRN_PCP_TYPES[w.type] ? pcpMap : othMap;
       var dup = map[apt.code].some(function(x) {
         return x.type === w.type && x.level === w.level;
