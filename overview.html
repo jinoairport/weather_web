@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>공항별 기상전망</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; background: #eef2f7; color: #111; }
+
+    /* ===== 상단 컨트롤 바 ===== */
+    .ov-bar {
+      background: #1e3050; color: #fff; padding: 7px 16px;
+      display: flex; align-items: center; gap: 10px;
+      position: sticky; top: 0; z-index: 200;
+    }
+    .ov-bar-title { font-size: 15px; font-weight: 700; letter-spacing: -0.3px; }
+    .ov-bar-sep { flex: 1; }
+    .ov-btn {
+      background: rgba(255,255,255,.13); color: #fff;
+      border: 1px solid rgba(255,255,255,.28); border-radius: 4px;
+      padding: 4px 12px; cursor: pointer; font-size: 12px; font-family: inherit;
+    }
+    .ov-btn:hover { background: rgba(255,255,255,.25); }
+    .ov-btn.primary { background: #2a6090; border-color: #2a6090; }
+
+    /* ===== 본문 래퍼 ===== */
+    .ov-body { padding: 14px 16px; }
+
+    /* ===== 페이지 제목 ===== */
+    .ov-title { text-align: center; font-size: 20px; font-weight: 700; margin-bottom: 3px; }
+    .ov-dateline { text-align: center; font-size: 12px; color: #444; margin-bottom: 6px; }
+    .ov-note { text-align: right; font-size: 11px; color: #666; margin-bottom: 8px; }
+
+    /* ===== 진행 칩 ===== */
+    .ov-progress { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 8px; }
+    .ov-chip {
+      font-size: 10px; padding: 2px 8px; border-radius: 10px;
+      background: #ddd; color: #555; transition: all .2s;
+    }
+    .ov-chip.loading { background: #a0c0f0; color: #0a2060; }
+    .ov-chip.done    { background: #3a7050; color: #fff; }
+    .ov-chip.err     { background: #a03030; color: #fff; }
+
+    /* ===== 테이블 컨테이너 ===== */
+    .ov-scroll { overflow-x: auto; }
+
+    /* ===== 메인 테이블 ===== */
+    #ov-tbl {
+      border-collapse: collapse;
+      font-size: 11px;
+      min-width: 860px;
+      width: 100%;
+      background: #fff;
+    }
+    #ov-tbl th, #ov-tbl td {
+      border: 1px solid #444;
+      text-align: center;
+      vertical-align: middle;
+      padding: 3px 4px;
+      line-height: 1.4;
+    }
+
+    /* ---- 헤더 ---- */
+    .ov-hd1 th {
+      background: #2a4060; color: #fff;
+      font-size: 11px; font-weight: 700;
+    }
+    .ov-hd-sm { font-size: 9px; font-weight: 400; }
+    .ov-hd2 th {
+      background: #b0c8d8; color: #1e2e3e;
+      font-size: 10px; font-weight: 700;
+    }
+    .ov-sub { font-size: 10px; }
+
+    /* 날짜 헤더 색상 */
+    .ov-date-hd { font-size: 11px; }
+    .ov-td-hd   { background: #1a4070 !important; }
+    .ov-sat-hd  { background: #1a4a90 !important; }
+    .ov-sun-hd  { background: #801818 !important; }
+
+    /* ---- 공항명 열 ---- */
+    .ov-apt-cell {
+      font-weight: 700; font-size: 12px;
+      background: #dce8f4;
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      padding: 10px 3px;
+      white-space: nowrap;
+    }
+
+    /* ---- 특보현황 ---- */
+    .ov-warn-cell {
+      font-size: 10px; color: #333;
+      background: #f7f7f7;
+      padding: 4px 4px;
+      cursor: text;
+    }
+    .ov-warn-cell:focus { outline: 2px dashed #2667cc; outline-offset: 1px; }
+
+    /* ---- 구분 라벨 ---- */
+    .ov-label {
+      font-size: 10px; text-align: left;
+      padding: 2px 6px;
+      background: #f2f4f6;
+      white-space: nowrap;
+    }
+
+    /* ---- 데이터 셀 공통 ---- */
+    .ov-c { font-size: 11px; }
+
+    /* ---- 행 배경 ---- */
+    .ov-wx-row  td { background: #fff; }
+    .ov-tmp-row td { background: #f8f9fa; }
+    .ov-pcp-row td { background: #eef3f8; }
+
+    /* 현재(오전) 컬럼 — 오늘 현재 */
+    .ov-cur { background: #e8f0fa !important; }
+
+    /* ---- 기온 굵게 ---- */
+    .ov-tmp { font-weight: 700; }
+
+    /* ---- 강수 하이라이트 ---- */
+    .ov-rain  { background: #cce0f8 !important; color: #0a2a6e; font-weight: 700; }
+    .ov-heavy { background: #88bce8 !important; color: #06184a; font-weight: 700; }
+    .ov-snow  { background: #d8eeff !important; color: #0a3870; font-weight: 700; }
+
+    /* ---- 특이사항 셀 ---- */
+    .ov-note-cell {
+      font-size: 10px; text-align: left;
+      padding: 4px 6px;
+      min-width: 60px;
+      color: #333;
+      cursor: text;
+    }
+    .ov-note-cell:focus { outline: 2px dashed #2667cc; outline-offset: 1px; }
+
+    /* ===== 레이더 섹션 ===== */
+    .radar-section {
+      display: none;
+      background: #1a2a3a;
+      border-radius: 6px;
+      padding: 8px 12px 10px;
+      margin-bottom: 10px;
+    }
+    .radar-header {
+      display: flex; align-items: center; gap: 8px;
+      color: #a0c8e8; font-size: 12px; font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .radar-title-txt { font-size: 13px; color: #d0e8ff; }
+    .radar-time { font-size: 10px; color: #7098b8; font-weight: 400; }
+    .radar-img-wrap {
+      text-align: center;
+    }
+    .radar-img-wrap img {
+      max-width: 100%; max-height: 280px;
+      border-radius: 4px;
+      display: block; margin: 0 auto;
+    }
+    .radar-err { color: #8098a8; font-size: 11px; padding: 10px 0; }
+
+    /* ===== 풍향풍속 (날씨 셀 내 작은 글씨) ===== */
+    .ov-wind {
+      color: #2a5080; font-size: 9px;
+      display: block; margin-top: 1px;
+    }
+
+    /* ===== 인쇄 ===== */
+    @media print {
+      @page { size: A3 landscape; margin: 8mm 10mm; }
+      .ov-bar, .ov-progress { display: none !important; }
+      body { background: #fff; }
+      .ov-body { padding: 0; }
+      .ov-title { font-size: 14pt; margin-bottom: 4pt; }
+      .ov-dateline { font-size: 10pt; margin-bottom: 4pt; }
+      .ov-note { font-size: 9pt; margin-bottom: 6pt; }
+      #ov-tbl { font-size: 8.5pt; }
+      #ov-tbl th, #ov-tbl td { padding: 2px 3px; }
+      .ov-warn-cell:focus, .ov-note-cell:focus { outline: none; }
+    }
+
+    /* ===== 모바일 ===== */
+    @media (max-width: 600px) {
+      .ov-bar { padding: 6px 10px; gap: 8px; }
+      .ov-bar-title { font-size: 13px; }
+      .ov-body { padding: 8px 10px; }
+      .ov-title { font-size: 16px; }
+      #ov-tbl { font-size: 9.5px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 인증키 설정 모달 -->
+  <div id="ov-key-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:999;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:8px;padding:20px 24px;min-width:320px;box-shadow:0 4px 20px rgba(0,0,0,.3);">
+      <div style="font-weight:700;font-size:14px;margin-bottom:12px;">⚙ 기상청 오픈API 인증키</div>
+      <input type="text" id="ov-key-inp" placeholder="발급된 인증키 입력"
+        style="width:100%;padding:7px 10px;border:1px solid #aaa;border-radius:4px;font-size:12px;box-sizing:border-box;margin-bottom:10px;">
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button onclick="ovSaveKey()" style="background:#2a6090;color:#fff;border:none;border-radius:4px;padding:6px 16px;cursor:pointer;font-size:12px;">저장</button>
+        <button onclick="document.getElementById('ov-key-modal').style.display='none'" style="background:#888;color:#fff;border:none;border-radius:4px;padding:6px 14px;cursor:pointer;font-size:12px;">닫기</button>
+      </div>
+      <div style="font-size:10px;color:#888;margin-top:8px;">data.go.kr → 기상청_단기예보 조회서비스</div>
+    </div>
+  </div>
+
+  <!-- 컨트롤 바 -->
+  <div class="ov-bar">
+    <span class="ov-bar-title">공항별 기상전망</span>
+    <span class="ov-bar-sep"></span>
+    <button class="ov-btn" onclick="location.href='index.html'">← 개별공항</button>
+    <button class="ov-btn" onclick="loadAll()">↺ 새로고침</button>
+    <button class="ov-btn" onclick="ovOpenKeyModal()">⚙ 인증키</button>
+    <button class="ov-btn primary" onclick="exportToExcel()">📥 엑셀 다운로드</button>
+  </div>
+
+  <div class="ov-body">
+
+    <!-- 제목 -->
+    <div class="ov-title">공항별 기상전망</div>
+    <div class="ov-dateline" id="ov-dateline">로딩 중...</div>
+    <div class="ov-note">[ ※ 세부 강수량은 해당일 2일전부터 조회 가능 ]</div>
+
+    <!-- 레이더 합성 영상 -->
+    <div class="radar-section" id="radar-section">
+      <div class="radar-header">
+        <span class="radar-title-txt">전국 레이더 합성 영상</span>
+        <span class="radar-time" id="radar-time"></span>
+      </div>
+      <div class="radar-img-wrap">
+        <img id="radar-img" src="" alt="레이더 이미지 로딩 중..."
+          onerror="document.getElementById('radar-section').style.display='none'">
+      </div>
+    </div>
+
+    <!-- 로딩 진행 칩 -->
+    <div class="ov-progress" id="ov-progress"></div>
+
+    <!-- 테이블 -->
+    <div class="ov-scroll">
+      <table id="ov-tbl"></table>
+    </div>
+
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="js/apikey.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/overview.js"></script>
+</body>
+</html>
