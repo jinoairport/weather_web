@@ -607,10 +607,13 @@ async function fetchWrnMsgDetail(key, stnId, tmFc, tmSeq) {
 /* 통보문 아이템에서 지역명 텍스트 추출 */
 function extractRegionText(detail) {
   if (!detail) return '';
-  var text = [detail.wrnStnm, detail.area, detail.areaFc, detail.wrnMsg, detail.msg, detail.wrnCn, detail.content]
-    .filter(Boolean).join(' ');
-  var m = text.match(/(?:대상\s*지역|특보\s*지역)\s*[:：]\s*([^\n○◎]+)/);
-  return m ? m[1].trim() : text;
+  /* 실제 API 응답 필드: t6 = 현재 발효 특보 지역, t2 = 제목 행 지역 요약 */
+  var text = detail.t6 || detail.t2 || '';
+  if (!text) {
+    text = [detail.wrnStnm, detail.area, detail.areaFc, detail.wrnMsg, detail.msg, detail.wrnCn, detail.content]
+      .filter(Boolean).join(' ');
+  }
+  return text;
 }
 
 /* getWthrWrnList → [{type,level,region,start,end}] 구조화 배열
