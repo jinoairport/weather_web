@@ -196,29 +196,6 @@ async function fetchWeatherWarning() {
   return filterByCity(arr, city);
 }
 
-/* 기상청 예비특보 조회 (선택 공항 소재지 기준) */
-async function fetchPreWarning() {
-  const city = getCurrentWrnKeys();
-  const url  = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getPwnWrnMsg');
-  url.searchParams.set('serviceKey', CONFIG.API_KEY);
-  url.searchParams.set('pageNo',    '1');
-  url.searchParams.set('numOfRows', '50');
-  url.searchParams.set('dataType',  'JSON');
-
-  try {
-    const res  = await fetch(url.toString());
-    if (!res.ok) return [];
-    const json = await res.json();
-    if (json?.response?.header?.resultCode !== '00') return [];
-    const items = json?.response?.body?.items?.item;
-    if (!items) return [];
-    const arr = Array.isArray(items) ? items : [items];
-    return filterByCity(arr, city).map(w => ({ ...w, isPreliminary: true }));
-  } catch (e) {
-    return [];
-  }
-}
-
 /* 메인 데이터 페치 */
 async function fetchWeatherData(mode) {
   if (!CONFIG.API_KEY) {
@@ -231,20 +208,16 @@ async function fetchWeatherData(mode) {
     const pad = n => String(n).padStart(2, '0');
     const baseTimeDisplay = `${base_date.slice(4,6)}/${base_date.slice(6,8)} ${base_time.slice(0,2)}:00 발표`;
 
-    const [items, warnings, preWarnings, ncst] = await Promise.allSettled([
+    const [items, warnings, ncst] = await Promise.allSettled([
       kmaFetch('getVilageFcst', { base_date, base_time }),
       fetchWeatherWarning(),
-      fetchPreWarning(),
       fetchUltraNcst(),
     ]);
 
     if (items.status === 'rejected') throw new Error(items.reason?.message || 'API 실패');
 
     const { dailyRows, hourlyRows } = parseVilageFcst(items.value);
-    const weatherWarnings = [
-      ...(warnings.status    === 'fulfilled' ? warnings.value    : []),
-      ...(preWarnings.status === 'fulfilled' ? preWarnings.value : []),
-    ];
+    const weatherWarnings = warnings.status === 'fulfilled' ? warnings.value : [];
     const ncstData = ncst.status === 'fulfilled' ? ncst.value : null;
 
     return { dailyRows, hourlyRows, generatedAt: new Date(), isReal: true, baseTimeDisplay, weatherWarnings, ncstData };
