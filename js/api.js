@@ -21,8 +21,9 @@ async function kmaFetch(endpoint, params, _retry = true) {
 
   const res = await fetch(url.toString());
   if (!res.ok) {
-    if (_retry && res.status >= 500) {
-      await new Promise(r => setTimeout(r, 2000));
+    if (_retry && (res.status >= 500 || res.status === 429)) {
+      const delay = res.status === 429 ? 5000 : 2000;
+      await new Promise(r => setTimeout(r, delay));
       return kmaFetch(endpoint, params, false);
     }
     throw new Error(`HTTP ${res.status}`);
