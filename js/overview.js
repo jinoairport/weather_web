@@ -68,8 +68,10 @@ function parseNcstApt(items) {
   var arr = Array.isArray(items) ? items : [items];
   arr.forEach(function(it) { map[it.category] = it.obsrValue; });
   var rawTmp = parseFloat(map.T1H);
+  /* -99 미만: 관측불가(결측), -50~60 범위 외: 물리적으로 불가 → null */
+  var validTmp = !isNaN(rawTmp) && rawTmp > -99 && rawTmp >= -50 && rawTmp <= 60;
   return {
-    tmp: (!isNaN(rawTmp) && rawTmp > -99) ? rawTmp : null,
+    tmp: validTmp ? rawTmp : null,
     pty: parseInt(map.PTY || '0'),
   };
 }
@@ -96,16 +98,44 @@ function fmtVis(vis) {
   return vis + 'm';
 }
 
-/* METAR API 호출 → raw METAR 문자열 반환 */
+/* METAR 문자열에서 관측 시각(UTC) 추출 (DDHHmmZ 토큰) */
+function parseMetarTime(raw) {
+  var parts = String(raw || '').trim().split(/\s+/);
+  for (var i = 0; i < parts.length; i++) {
+    var dtz = parts[i].match(/^(\d{2})(\d{2})(\d{2})Z$/);
+    if (dtz) {
+      var now = new Date();
+      var d   = new Date(Date.UTC(
+        now.getUTCFullYear(), now.getUTCMonth(),
+        parseInt(dtz[1]), parseInt(dtz[2]), parseInt(dtz[3])
+      ));
+      if (d > now) d.setUTCMonth(d.getUTCMonth() - 1); /* 말일→익월 방지 */
+      return d;
+    }
+  }
+  return new Date(0);
+}
+
+/* METAR API 호출 → raw METAR 문자열 반환 (가장 최신 관측 선택) */
 async function kmaFetchMetar(icao) {
   var url = new URL('https://apis.data.go.kr/1360000/AftnAmmService/getMetar');
   var key = CONFIG.API_KEY;
   if (key.includes('%')) key = decodeURIComponent(key);
+  /* 오늘 날짜 범위로 오래된 데이터 제외 */
+  var now = new Date();
+  var p2  = function(n){ return String(n).padStart(2,'0'); };
+  var tm2 = '' + now.getFullYear() + p2(now.getMonth()+1) + p2(now.getDate())
+          + p2(now.getHours()) + p2(now.getMinutes());
+  var past = new Date(now.getTime() - 3 * 3600 * 1000);
+  var tm1 = '' + past.getFullYear() + p2(past.getMonth()+1) + p2(past.getDate())
+          + p2(past.getHours()) + p2(past.getMinutes());
   url.searchParams.set('serviceKey', key);
   url.searchParams.set('pageNo',    '1');
-  url.searchParams.set('numOfRows', '1');
+  url.searchParams.set('numOfRows', '10');
   url.searchParams.set('dataType',  'JSON');
   url.searchParams.set('icao',      icao);
+  url.searchParams.set('tm1',       tm1);
+  url.searchParams.set('tm2',       tm2);
   var res  = await fetch(url.toString());
   if (!res.ok) throw new Error('HTTP ' + res.status);
   var json = await res.json();
@@ -113,7 +143,14 @@ async function kmaFetchMetar(icao) {
     throw new Error('METAR ' + json?.response?.header?.resultCode);
   var item = json.response.body?.items?.item;
   if (!item) return null;
-  var it = Array.isArray(item) ? item[0] : item;
+  var arr = Array.isArray(item) ? item : [item];
+  /* METAR 문자열 내 시각 기준 최신 선택 */
+  arr.sort(function(a, b) {
+    var ra = a.metarMsg || a.metar || a.obsrValue || '';
+    var rb = b.metarMsg || b.metar || b.obsrValue || '';
+    return parseMetarTime(rb) - parseMetarTime(ra);
+  });
+  var it = arr[0];
   return it.metarMsg || it.metar || it.obsrValue || null;
 }
 
