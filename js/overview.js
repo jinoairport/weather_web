@@ -243,10 +243,10 @@ async function loadRadarImage() {
     if (!items) return;
     var arr    = Array.isArray(items) ? items : [items];
     var latest = arr[arr.length - 1];
-    console.log('[레이더] API 응답 샘플:', JSON.stringify(latest));
-    var rawImg  = latest.rdrImg || latest.rdrImgPath || latest['rdr-img-file'] || latest.cmpPath || latest.imgFile || '';
-    var imgFile = typeof rawImg === 'string' ? rawImg.trim()
-                : typeof rawImg === 'object' && rawImg ? String(Object.values(rawImg)[0] || '') : '';
+    /* rdr-img-file이 배열로 오는 경우 → 마지막(최신) URL 사용 */
+    var rawImg  = latest['rdr-img-file'] || latest.rdrImg || latest.rdrImgPath || latest.cmpPath || latest.imgFile || '';
+    var imgFile = Array.isArray(rawImg) ? rawImg[rawImg.length - 1] : rawImg;
+    imgFile = typeof imgFile === 'string' ? imgFile.trim() : '';
     if (!imgFile) return;
     var imgUrl = imgFile.startsWith('http')
       ? imgFile
@@ -586,7 +586,36 @@ function parseWrnTitle(title) {
   return { type: type, level: level };
 }
 
-/* getWthrWrnList → [{type,level,region,start,end}] 구조화 배열 */
+/* getWthrWrnMsg를 stnId+tmFc 로 호출 → 통보문 원본 아이템 반환 */
+async function fetchWrnMsgDetail(key, stnId, tmFc, tmSeq) {
+  var url = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
+  url.searchParams.set('serviceKey', key);
+  url.searchParams.set('pageNo',    '1');
+  url.searchParams.set('numOfRows', '5');
+  url.searchParams.set('dataType',  'JSON');
+  if (stnId) url.searchParams.set('stnId',  String(stnId));
+  if (tmFc)  url.searchParams.set('tmFc',   String(tmFc));
+  if (tmSeq) url.searchParams.set('tmSeq',  String(tmSeq));
+  var res  = await fetch(url.toString());
+  var json = await res.json();
+  if (json?.response?.header?.resultCode !== '00') return null;
+  var item = json?.response?.body?.items?.item;
+  if (!item) return null;
+  return Array.isArray(item) ? item[0] : item;
+}
+
+/* 통보문 아이템에서 지역명 텍스트 추출 */
+function extractRegionText(detail) {
+  if (!detail) return '';
+  var text = [detail.wrnStnm, detail.area, detail.areaFc, detail.wrnMsg, detail.msg, detail.wrnCn, detail.content]
+    .filter(Boolean).join(' ');
+  var m = text.match(/(?:대상\s*지역|특보\s*지역)\s*[:：]\s*([^\n○◎]+)/);
+  return m ? m[1].trim() : text;
+}
+
+/* getWthrWrnList → [{type,level,region,start,end}] 구조화 배열
+   API 응답이 {stnId,title,tmFc,tmSeq} 형식이므로 title에서 type/level 파싱,
+   getWthrWrnMsg(stnId+tmFc)로 지역명 확보 */
 async function fetchWrnList() {
   if (!CONFIG.API_KEY) return null;
   try {
@@ -600,101 +629,53 @@ async function fetchWrnList() {
     var res  = await fetch(url.toString());
     var json = await res.json();
     var rc   = json?.response?.header?.resultCode;
-    if (rc !== '00') {
-      console.warn('[특보] getWthrWrnList resultCode:', rc);
-      return null;
-    }
+    if (rc !== '00') { console.warn('[특보] getWthrWrnList resultCode:', rc); return null; }
     var items = json?.response?.body?.items?.item;
-    if (!items) {
-      console.log('[특보] getWthrWrnList: 현재 발효중 특보 없음');
-      return [];
-    }
+    if (!items) { console.log('[특보] getWthrWrnList: 현재 발효중 특보 없음'); return []; }
     var arr = Array.isArray(items) ? items : [items];
     console.log('[특보] getWthrWrnList 응답 (' + arr.length + '건):', JSON.stringify(arr.slice(0, 3)));
-    return arr.map(function(w) {
-      var ty  = w.wrnTy || '';
-      var lv  = w.wrnLv || '';
-      /* 구역명 — 가능한 모든 필드 시도 */
-      var region = [w.wrnStnm, w.wrnCity, w.area, w.stnName, w.stnm]
-        .filter(Boolean).map(function(s){ return String(s).trim(); }).join(' ');
+
+    /* 각 항목별로 getWthrWrnMsg 상세 조회하여 지역명 확보 */
+    var detailed = await Promise.allSettled(arr.map(async function(w) {
+      var titleStr = String(w.title || w.wrnTitle || '');
+      var parsed   = parseWrnTitle(titleStr);
+      if (!parsed.type) return null;
+
+      var region = '';
+      try {
+        var detail = await fetchWrnMsgDetail(key, w.stnId, w.tmFc, w.tmSeq);
+        if (detail) {
+          console.log('[특보] getWthrWrnMsg 상세 (stnId=' + w.stnId + '):', JSON.stringify(detail));
+          region = extractRegionText(detail);
+        }
+      } catch(e) { /* 지역명 조회 실패 시 빈 region으로 처리 */ }
+
       return {
-        type:   WRN_TY_MAP[ty] || ty,
-        level:  lv === '2' ? '경보' : '주의보',
+        type:   parsed.type,
+        level:  parsed.level,
         region: region,
-        start:  fmtWrnTime(w.tmSt || w.tmFc || ''),
-        end:    fmtWrnTime(w.tmEf || ''),
+        start:  fmtWrnTime(w.tmFc || ''),
+        end:    '',
       };
-    });
+    }));
+
+    return detailed.map(function(r) { return r.value; }).filter(Boolean);
   } catch(e) {
     console.warn('[특보] getWthrWrnList 오류:', e.message);
     return null;
   }
 }
 
-/* getWthrWrnMsg 통보문 → [{type,level,region,start,end}] 파싱
-   region을 wrnStnm 외 통보문 전문(wrnMsg)에서도 추출 — 키워드 매칭을 위해 전문을 통째로 사용 */
-function parseWrnMsgItems(msgs) {
-  var result = [];
-  (msgs || []).forEach(function(m) {
-    var parsed = parseWrnTitle(m.wrnTitle || m.title || '');
-    if (!parsed.type) return;
-
-    /* 구역 정보 — 가능한 모든 필드 합치기 */
-    var regionText = [
-      m.wrnStnm, m.area, m.areaFc, m.wrnCity,
-      m.wrnMsg,  m.msg,  m.content, m.wrnTitle, m.title,
-    ].filter(Boolean).join(' ');
-
-    /* wrnMsg 안에 "특보지역 : XXX" 패턴 추출 시도 */
-    var specificMatch = regionText.match(/특보지역\s*[:：]\s*([^\n○◎]+)/);
-    var regionFinal   = specificMatch ? specificMatch[1].trim() : regionText;
-
-    result.push({
-      type:   parsed.type,
-      level:  parsed.level,
-      region: regionFinal,
-      start:  fmtWrnTime(m.tmFc || ''),
-      end:    fmtWrnTime(m.tmEf || ''),
-    });
-  });
-  return result;
-}
-
-/* 특보 전체 조회: {list:[…], msgs:[…]} 반환
-   list = 공항별 매칭용 구조화 배열
-   msgs = 헤더 레이블용 원본 통보문 배열 */
+/* 특보 전체 조회: {list:[…], msgs:[…]} 반환 */
 async function fetchAllWarnings() {
   if (!CONFIG.API_KEY) return { list: [], msgs: [] };
 
-  /* getWthrWrnMsg (헤더 레이블용 + list 파싱 fallback) */
-  var msgs = [];
-  try {
-    var url2 = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
-    var key2 = CONFIG.API_KEY;
-    if (key2.includes('%')) key2 = decodeURIComponent(key2);
-    url2.searchParams.set('serviceKey', key2);
-    url2.searchParams.set('pageNo',    '1');
-    url2.searchParams.set('numOfRows', '100');
-    url2.searchParams.set('dataType',  'JSON');
-    var res2  = await fetch(url2.toString());
-    var json2 = await res2.json();
-    var rc2   = json2?.response?.header?.resultCode;
-    if (rc2 === '00') {
-      var items2 = json2?.response?.body?.items?.item;
-      msgs = items2 ? (Array.isArray(items2) ? items2 : [items2]) : [];
-      console.log('[특보] getWthrWrnMsg 응답 (' + msgs.length + '건):',
-        msgs.map(function(m){ return { title: m.wrnTitle, stnm: m.wrnStnm }; }));
-    } else {
-      console.warn('[특보] getWthrWrnMsg resultCode:', rc2);
-    }
-  } catch(e2) {
-    console.warn('[특보] getWthrWrnMsg 오류:', e2.message);
-  }
-
-  /* getWthrWrnList 우선, 실패하면 getWthrWrnMsg 파싱으로 대체 */
-  var listResult = await fetchWrnList();
-  var list = listResult !== null ? listResult : parseWrnMsgItems(msgs);
+  var list = await fetchWrnList();
+  if (list === null) list = [];
   console.log('[특보] 최종 list (' + list.length + '건):', list.slice(0, 5));
+
+  /* 헤더 레이블용 — type+level 정보만 필요 */
+  var msgs = list.map(function(w) { return { wrnTitle: (w.type || '') + (w.level || '') }; });
 
   return { list: list, msgs: msgs };
 }
