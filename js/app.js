@@ -279,11 +279,21 @@ function updateRainSummary(data) {
   tomorrow.setDate(today.getDate() + 1);
 
   const todayDow  = DAYS_KO[today.getDay()];
-  const fmtDate   = d => `${d.getMonth()+1}.${d.getDate()}(${DAYS_KO[d.getDay()]})`;
 
   // 날짜 표시 필드
-  setText('v-rain-day', fmtDate(today));
-  setText('v-rain-period', `${fmtDate(today)}~${fmtDate(tomorrow)}`);
+  setText('v-rain-day', `${today.getDate()}일`);
+
+  // 강우 기간: 미래 강수 예상 시간대의 실제 날짜 범위
+  const rainyRows = (data.hourlyRows || []).filter(r => r.time > today && r.pcp > 0);
+  let rainPeriodStr;
+  if (rainyRows.length > 0) {
+    const firstD = rainyRows[0].time.getDate();
+    const lastD  = rainyRows[rainyRows.length - 1].time.getDate();
+    rainPeriodStr = firstD === lastD ? `${firstD}일` : `${firstD}~${lastD}일`;
+  } else {
+    rainPeriodStr = `${today.getDate()}~${tomorrow.getDate()}일`;
+  }
+  setText('v-rain-period', rainPeriodStr);
 
   // 누적강수량: 오늘 0시 ~ 현재 시점까지 실제 경과 시간만 합산
   const pastRows = data.hourlyRows.filter(r =>
