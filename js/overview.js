@@ -243,7 +243,10 @@ async function loadRadarImage() {
     if (!items) return;
     var arr    = Array.isArray(items) ? items : [items];
     var latest = arr[arr.length - 1];
-    var imgFile = latest.rdrImg || latest['rdr-img-file'] || latest.imgFile || '';
+    console.log('[레이더] API 응답 샘플:', JSON.stringify(latest));
+    var rawImg  = latest.rdrImg || latest.rdrImgPath || latest['rdr-img-file'] || latest.cmpPath || latest.imgFile || '';
+    var imgFile = typeof rawImg === 'string' ? rawImg.trim()
+                : typeof rawImg === 'object' && rawImg ? String(Object.values(rawImg)[0] || '') : '';
     if (!imgFile) return;
     var imgUrl = imgFile.startsWith('http')
       ? imgFile
@@ -596,44 +599,62 @@ async function fetchWrnList() {
     url.searchParams.set('dataType',  'JSON');
     var res  = await fetch(url.toString());
     var json = await res.json();
-    if (json?.response?.header?.resultCode !== '00') return null;
+    var rc   = json?.response?.header?.resultCode;
+    if (rc !== '00') {
+      console.warn('[특보] getWthrWrnList resultCode:', rc);
+      return null;
+    }
     var items = json?.response?.body?.items?.item;
-    if (!items) return [];
+    if (!items) {
+      console.log('[특보] getWthrWrnList: 현재 발효중 특보 없음');
+      return [];
+    }
     var arr = Array.isArray(items) ? items : [items];
+    console.log('[특보] getWthrWrnList 응답 (' + arr.length + '건):', JSON.stringify(arr.slice(0, 3)));
     return arr.map(function(w) {
       var ty  = w.wrnTy || '';
       var lv  = w.wrnLv || '';
+      /* 구역명 — 가능한 모든 필드 시도 */
+      var region = [w.wrnStnm, w.wrnCity, w.area, w.stnName, w.stnm]
+        .filter(Boolean).map(function(s){ return String(s).trim(); }).join(' ');
       return {
         type:   WRN_TY_MAP[ty] || ty,
         level:  lv === '2' ? '경보' : '주의보',
-        region: (w.wrnStnm || '').trim(),
+        region: region,
         start:  fmtWrnTime(w.tmSt || w.tmFc || ''),
         end:    fmtWrnTime(w.tmEf || ''),
       };
     });
   } catch(e) {
+    console.warn('[특보] getWthrWrnList 오류:', e.message);
     return null;
   }
 }
 
-/* getWthrWrnMsg 통보문 → [{type,level,region,start,end}] 파싱 */
+/* getWthrWrnMsg 통보문 → [{type,level,region,start,end}] 파싱
+   region을 wrnStnm 외 통보문 전문(wrnMsg)에서도 추출 — 키워드 매칭을 위해 전문을 통째로 사용 */
 function parseWrnMsgItems(msgs) {
   var result = [];
   (msgs || []).forEach(function(m) {
     var parsed = parseWrnTitle(m.wrnTitle || m.title || '');
     if (!parsed.type) return;
-    var regions = (m.wrnStnm || '').split(/[,、]\s*/);
-    regions.forEach(function(r) {
-      var rTrim = r.trim();
-      if (rTrim) {
-        result.push({
-          type:   parsed.type,
-          level:  parsed.level,
-          region: rTrim,
-          start:  fmtWrnTime(m.tmFc || ''),
-          end:    fmtWrnTime(m.tmEf || ''),
-        });
-      }
+
+    /* 구역 정보 — 가능한 모든 필드 합치기 */
+    var regionText = [
+      m.wrnStnm, m.area, m.areaFc, m.wrnCity,
+      m.wrnMsg,  m.msg,  m.content, m.wrnTitle, m.title,
+    ].filter(Boolean).join(' ');
+
+    /* wrnMsg 안에 "특보지역 : XXX" 패턴 추출 시도 */
+    var specificMatch = regionText.match(/특보지역\s*[:：]\s*([^\n○◎]+)/);
+    var regionFinal   = specificMatch ? specificMatch[1].trim() : regionText;
+
+    result.push({
+      type:   parsed.type,
+      level:  parsed.level,
+      region: regionFinal,
+      start:  fmtWrnTime(m.tmFc || ''),
+      end:    fmtWrnTime(m.tmEf || ''),
     });
   });
   return result;
@@ -657,15 +678,23 @@ async function fetchAllWarnings() {
     url2.searchParams.set('dataType',  'JSON');
     var res2  = await fetch(url2.toString());
     var json2 = await res2.json();
-    if (json2?.response?.header?.resultCode === '00') {
+    var rc2   = json2?.response?.header?.resultCode;
+    if (rc2 === '00') {
       var items2 = json2?.response?.body?.items?.item;
       msgs = items2 ? (Array.isArray(items2) ? items2 : [items2]) : [];
+      console.log('[특보] getWthrWrnMsg 응답 (' + msgs.length + '건):',
+        msgs.map(function(m){ return { title: m.wrnTitle, stnm: m.wrnStnm }; }));
+    } else {
+      console.warn('[특보] getWthrWrnMsg resultCode:', rc2);
     }
-  } catch(e2) { /* getWthrWrnMsg 실패 무시 */ }
+  } catch(e2) {
+    console.warn('[특보] getWthrWrnMsg 오류:', e2.message);
+  }
 
   /* getWthrWrnList 우선, 실패하면 getWthrWrnMsg 파싱으로 대체 */
   var listResult = await fetchWrnList();
   var list = listResult !== null ? listResult : parseWrnMsgItems(msgs);
+  console.log('[특보] 최종 list (' + list.length + '건):', list.slice(0, 5));
 
   return { list: list, msgs: msgs };
 }
@@ -710,15 +739,17 @@ var WRN_PCP_TYPES = { '호우': 1, '대설': 1, '강설': 1, '태풍': 1 };
 
 /* 특보 list → 공항별 {pcpMap, othMap} 두 맵으로 분류
    pcpMap : 특보현황 칸 (호우·대설·강설·태풍)
-   othMap : 특이사항 칸 (폭염·강풍·뇌우·안개·한파·황사·건조 등) */
+   othMap : 특이사항 칸 (폭염·강풍·뇌우·안개·한파·황사·건조 등)
+   wrnKeys 배열로 매칭 — 광역시도 이름(충청북, 강원 등)도 포함 */
 function buildAptWarnMaps(list) {
   var pcpMap = {}, othMap = {};
   AIRPORTS.forEach(function(apt) { pcpMap[apt.code] = []; othMap[apt.code] = []; });
   (list || []).forEach(function(w) {
     var region = w.region || '';
     AIRPORTS.forEach(function(apt) {
-      var kw = apt.wrnCity || '';
-      if (!kw || !region.includes(kw)) return;
+      var keys = apt.wrnKeys && apt.wrnKeys.length ? apt.wrnKeys : [apt.wrnCity || ''];
+      var matched = keys.some(function(kw) { return kw && region.includes(kw); });
+      if (!matched) return;
       var map = WRN_PCP_TYPES[w.type] ? pcpMap : othMap;
       var dup = map[apt.code].some(function(x) {
         return x.type === w.type && x.level === w.level;

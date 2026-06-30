@@ -354,15 +354,16 @@ function saveSettings() {
   if (key) CONFIG.API_KEY = key;
   CONFIG.SHOW_DAM = (dam === 'show');
 
-  // localStorage 폴백 저장
+  // localStorage 저장
   if (key) localStorage.setItem('kma_api_key', key);
   localStorage.setItem('show_dam', dam);
 
-  // 서버 파일에 저장 (주소 무관하게 유지)
+  // 서버에 저장: saved_config.json + apikey.js 파일 자체 업데이트
+  const payload = JSON.stringify({ api_key: key || CONFIG.API_KEY, show_dam: dam !== 'hide' });
   fetch('/config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ api_key: key || CONFIG.API_KEY, show_dam: dam !== 'hide' })
+    body: payload,
   }).catch(() => {});
 
   toggleSettings();
@@ -395,7 +396,7 @@ function updateWeatherWarnings(warnings) {
     return { m: parseInt(s.slice(4,6)), d: parseInt(s.slice(6,8)), h: parseInt(s.slice(8,10)) };
   }
 
-  const texts = warnings.map(w => {
+  function fmtWarning(w) {
     const title = w.wrnTitle || w.title || '';
     const area  = w.area || w.areaFc || '';
     const st    = w.wrnSt || '';
@@ -415,8 +416,11 @@ function updateWeatherWarnings(warnings) {
       timePart = `(${area} ${st})`;
     }
 
-    return `${title}${timePart}`;
-  }).filter(Boolean).join(', ');
+    const prefix = w.isPreliminary ? '[예비특보] ' : '';
+    return `${prefix}${title}${timePart}`;
+  }
+
+  const texts = warnings.map(fmtWarning).filter(Boolean).join(', ');
 
   if (el)      el.textContent = texts || '해당없음';
   if (elAlert) elAlert.textContent = texts || '해당없음';

@@ -156,12 +156,32 @@ async function fetchUltraNcst() {
   };
 }
 
-/* 기상청 특보 조회 (부산 지역) */
+/* 현재 선택 공항의 특보 매칭 키워드 배열 반환 (wrnKeys → wrnCity 순 fallback) */
+function getCurrentWrnKeys() {
+  const code = localStorage.getItem('airport_code') || 'PUS';
+  const apt  = (typeof AIRPORTS !== 'undefined') ? AIRPORTS.find(a => a.code === code) : null;
+  if (!apt) return ['부산'];
+  return (apt.wrnKeys && apt.wrnKeys.length) ? apt.wrnKeys : [apt.wrnCity || '부산'];
+}
+
+/* 특보/예비특보 공통 필터 (wrnKeys 중 하나라도 포함 여부) */
+function filterByCity(arr, keys) {
+  var keyArr = Array.isArray(keys) ? keys : [keys];
+  return arr.filter(function(w) {
+    var targets = [w.wrnStnm, w.area, w.areaFc, w.wrnTitle];
+    return keyArr.some(function(kw) {
+      return kw && targets.some(function(t) { return t && t.includes(kw); });
+    });
+  });
+}
+
+/* 기상청 기상특보 조회 (선택 공항 소재지 기준) */
 async function fetchWeatherWarning() {
-  const url = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
+  const city = getCurrentWrnKeys();
+  const url  = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
   url.searchParams.set('serviceKey', CONFIG.API_KEY);
   url.searchParams.set('pageNo',    '1');
-  url.searchParams.set('numOfRows', '20');
+  url.searchParams.set('numOfRows', '50');
   url.searchParams.set('dataType',  'JSON');
 
   const res = await fetch(url.toString());
@@ -173,13 +193,30 @@ async function fetchWeatherWarning() {
   const items = json?.response?.body?.items?.item;
   if (!items) return [];
   const arr = Array.isArray(items) ? items : [items];
+  return filterByCity(arr, city);
+}
 
-  // 부산 관련 특보만 필터
-  return arr.filter(w =>
-    (w.area && w.area.includes('부산')) ||
-    (w.areaFc && w.areaFc.includes('부산')) ||
-    (w.wrnTitle && w.wrnTitle.includes('부산'))
-  );
+/* 기상청 예비특보 조회 (선택 공항 소재지 기준) */
+async function fetchPreWarning() {
+  const city = getCurrentWrnKeys();
+  const url  = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getPwnWrnMsg');
+  url.searchParams.set('serviceKey', CONFIG.API_KEY);
+  url.searchParams.set('pageNo',    '1');
+  url.searchParams.set('numOfRows', '50');
+  url.searchParams.set('dataType',  'JSON');
+
+  try {
+    const res  = await fetch(url.toString());
+    if (!res.ok) return [];
+    const json = await res.json();
+    if (json?.response?.header?.resultCode !== '00') return [];
+    const items = json?.response?.body?.items?.item;
+    if (!items) return [];
+    const arr = Array.isArray(items) ? items : [items];
+    return filterByCity(arr, city).map(w => ({ ...w, isPreliminary: true }));
+  } catch (e) {
+    return [];
+  }
 }
 
 /* 메인 데이터 페치 */
@@ -194,17 +231,21 @@ async function fetchWeatherData(mode) {
     const pad = n => String(n).padStart(2, '0');
     const baseTimeDisplay = `${base_date.slice(4,6)}/${base_date.slice(6,8)} ${base_time.slice(0,2)}:00 발표`;
 
-    const [items, warnings, ncst] = await Promise.allSettled([
+    const [items, warnings, preWarnings, ncst] = await Promise.allSettled([
       kmaFetch('getVilageFcst', { base_date, base_time }),
       fetchWeatherWarning(),
+      fetchPreWarning(),
       fetchUltraNcst(),
     ]);
 
     if (items.status === 'rejected') throw new Error(items.reason?.message || 'API 실패');
 
     const { dailyRows, hourlyRows } = parseVilageFcst(items.value);
-    const weatherWarnings = warnings.status === 'fulfilled' ? warnings.value : [];
-    const ncstData        = ncst.status === 'fulfilled' ? ncst.value : null;
+    const weatherWarnings = [
+      ...(warnings.status    === 'fulfilled' ? warnings.value    : []),
+      ...(preWarnings.status === 'fulfilled' ? preWarnings.value : []),
+    ];
+    const ncstData = ncst.status === 'fulfilled' ? ncst.value : null;
 
     return { dailyRows, hourlyRows, generatedAt: new Date(), isReal: true, baseTimeDisplay, weatherWarnings, ncstData };
   } catch (err) {
