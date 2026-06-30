@@ -647,26 +647,31 @@ function updateWarnLabel(msgs) {
   if (el) el.textContent = buildWarnLabel(msgs);
 }
 
-/* 특보 list → 공항코드별 매칭 맵 {code:[{type,level,start,end}]} */
-function buildAptWarnMap(list) {
-  var map = {};
-  AIRPORTS.forEach(function(apt) { map[apt.code] = []; });
+/* 강수 관련 특보 타입 (특보현황 칸) */
+var WRN_PCP_TYPES = { '호우': 1, '대설': 1, '강설': 1, '태풍': 1 };
+
+/* 특보 list → 공항별 {pcpMap, othMap} 두 맵으로 분류
+   pcpMap : 특보현황 칸 (호우·대설·강설·태풍)
+   othMap : 특이사항 칸 (폭염·강풍·뇌우·안개·한파·황사·건조 등) */
+function buildAptWarnMaps(list) {
+  var pcpMap = {}, othMap = {};
+  AIRPORTS.forEach(function(apt) { pcpMap[apt.code] = []; othMap[apt.code] = []; });
   (list || []).forEach(function(w) {
     var region = w.region || '';
     AIRPORTS.forEach(function(apt) {
       var kw = apt.wrnCity || '';
       if (!kw || !region.includes(kw)) return;
-      /* 같은 타입·레벨 중복 방지 */
+      var map = WRN_PCP_TYPES[w.type] ? pcpMap : othMap;
       var dup = map[apt.code].some(function(x) {
         return x.type === w.type && x.level === w.level;
       });
       if (!dup) map[apt.code].push({ type: w.type, level: w.level, start: w.start, end: w.end });
     });
   });
-  return map;
+  return { pcpMap: pcpMap, othMap: othMap };
 }
 
-/* 특보 배열 → ov-note-cell innerHTML */
+/* 특보 배열 → 셀 innerHTML */
 function renderWarnCell(warns) {
   if (!warns || !warns.length) return '';
   return warns.map(function(w) {
@@ -679,47 +684,49 @@ function renderWarnCell(warns) {
   }).join('<br>');
 }
 
-/* ov-note-cell 편집 이벤트 바인딩 + localStorage 복원
-   ‐ 새로고침해도 수동 편집 내용 유지
-   ‐ 셀 완전히 비우면 수동 override 해제 (다음 로드 시 API 데이터로 복원) */
-function bindNoteCells() {
-  document.querySelectorAll('.ov-note-cell[data-code]').forEach(function(cell) {
+/* 셀 배경·글자색 적용 */
+function styleWarnCell(cell, warns) {
+  var hasAlert  = warns.some(function(w){ return w.level === '경보'; });
+  var hasNotice = warns.some(function(w){ return w.level === '주의보'; });
+  cell.style.backgroundColor = hasAlert ? '#ffd6d6' : hasNotice ? '#fffbe6' : '';
+  cell.style.color            = hasAlert ? '#c00'    : hasNotice ? '#a06000' : '';
+  cell.style.fontWeight       = hasAlert ? 'bold'    : '';
+}
+
+/* contenteditable 셀 localStorage 저장/복원 바인딩
+   lsPrefix: 'ov-warn-' 또는 'ov-note-' */
+function bindEditCells(selector, lsPrefix) {
+  document.querySelectorAll(selector + '[data-code]').forEach(function(cell) {
     var code = cell.dataset.code;
     try {
-      var saved = localStorage.getItem('ov-note-' + code);
-      if (saved !== null) {
-        cell.innerHTML  = saved;
-        cell.dataset.manual = '1';
-      }
+      var saved = localStorage.getItem(lsPrefix + code);
+      if (saved !== null) { cell.innerHTML = saved; cell.dataset.manual = '1'; }
     } catch(e) {}
     cell.addEventListener('blur', function() {
-      var content = cell.innerHTML.trim();
+      var c = cell.innerHTML.trim();
       try {
-        if (!content) {
-          localStorage.removeItem('ov-note-' + code);
-          cell.dataset.manual = '';
-        } else {
-          localStorage.setItem('ov-note-' + code, content);
-          cell.dataset.manual = '1';
-        }
+        if (!c) { localStorage.removeItem(lsPrefix + code); cell.dataset.manual = ''; }
+        else    { localStorage.setItem(lsPrefix + code, c); cell.dataset.manual = '1'; }
       } catch(e) {}
     });
   });
 }
 
-/* 렌더된 테이블의 ov-note-cell 에 특보 내용 주입
-   ‐ data-manual='1' 셀(수동 편집 우선)은 건너뜀 */
-function applyWarnCells(warnMap) {
+/* 특보현황 칸(호우·대설류) + 특이사항 칸(기타 특보) 동시 주입
+   data-manual='1' 셀(수동 편집)은 건너뜀 */
+function applyWarnCells(pcpMap, othMap) {
+  document.querySelectorAll('.ov-warn-cell[data-code]').forEach(function(cell) {
+    if (cell.dataset.manual === '1') return;
+    var warns = pcpMap[cell.dataset.code] || [];
+    cell.innerHTML = renderWarnCell(warns);
+    styleWarnCell(cell, warns);
+    if (!warns.length) cell.innerHTML = '-';
+  });
   document.querySelectorAll('.ov-note-cell[data-code]').forEach(function(cell) {
     if (cell.dataset.manual === '1') return;
-    var code  = cell.dataset.code;
-    var warns = warnMap[code] || [];
+    var warns = othMap[cell.dataset.code] || [];
     cell.innerHTML = renderWarnCell(warns);
-    var hasAlert  = warns.some(function(w){ return w.level === '경보'; });
-    var hasNotice = warns.some(function(w){ return w.level === '주의보'; });
-    cell.style.backgroundColor = hasAlert ? '#ffd6d6' : hasNotice ? '#fffbe6' : '';
-    cell.style.color            = hasAlert ? '#c00'    : hasNotice ? '#a06000' : '';
-    cell.style.fontWeight       = hasAlert ? 'bold'    : '';
+    styleWarnCell(cell, warns);
   });
 }
 
@@ -782,7 +789,7 @@ function renderOvTable(allData, dates) {
     /* ── 날씨 행 ── */
     h += '<tr class="ov-wx-row">';
     h += '<td class="ov-apt-cell" rowspan="3">' + apt.name + '</td>';
-    h += '<td class="ov-warn-cell" rowspan="3" contenteditable="true">-</td>';
+    h += '<td class="ov-warn-cell" data-code="' + apt.code + '" rowspan="3" contenteditable="true">-</td>';
     h += '<td class="ov-label">날씨</td>';
     dates.forEach(function(d) {
       var isTd = d.toDateString() === todayStr;
@@ -847,7 +854,8 @@ function renderOvTable(allData, dates) {
 
   h += '</tbody>';
   tbl.innerHTML = h;
-  bindNoteCells(); /* localStorage 복원 + blur 저장 이벤트 바인딩 */
+  bindEditCells('.ov-warn-cell', 'ov-warn-');
+  bindEditCells('.ov-note-cell', 'ov-note-');
 }
 
 /* ===================== 단일 공항 데이터 로드 ===================== */
@@ -1013,8 +1021,8 @@ async function loadAll() {
   /* 특보 API → 헤더 레이블 + 공항별 특보현황 칸 갱신 (비동기, 테이블 렌더 후) */
   fetchAllWarnings().then(function(result) {
     updateWarnLabel(result.msgs);
-    var warnMap = buildAptWarnMap(result.list);
-    applyWarnCells(warnMap);
+    var maps = buildAptWarnMaps(result.list);
+    applyWarnCells(maps.pcpMap, maps.othMap);
   });
 
   /* 레이더 이미지 갱신 */
