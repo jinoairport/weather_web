@@ -6,10 +6,9 @@
 
 const KMA_BASE = 'https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0';
 
-/* 기상청 API 공통 호출 */
-async function kmaFetch(endpoint, params) {
+/* 기상청 API 공통 호출 (5xx 오류 시 2초 후 1회 재시도) */
+async function kmaFetch(endpoint, params, _retry = true) {
   const url = new URL(`${KMA_BASE}/${endpoint}`);
-  // API 키가 URL인코딩된 형태(%2B 등)로 붙여넣은 경우 디코딩
   const apiKey = CONFIG.API_KEY.includes('%') ? decodeURIComponent(CONFIG.API_KEY) : CONFIG.API_KEY;
   url.searchParams.set('serviceKey', apiKey);
   url.searchParams.set('numOfRows', '1500');
@@ -21,7 +20,13 @@ async function kmaFetch(endpoint, params) {
   url.searchParams.set('ny', CONFIG.NY);
 
   const res = await fetch(url.toString());
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    if (_retry && res.status >= 500) {
+      await new Promise(r => setTimeout(r, 2000));
+      return kmaFetch(endpoint, params, false);
+    }
+    throw new Error(`HTTP ${res.status}`);
+  }
   const json = await res.json();
   const code = json?.response?.header?.resultCode;
   if (code !== '00') throw new Error(`KMA 오류코드: ${code}`);
@@ -175,8 +180,8 @@ function filterByCity(arr, keys) {
   });
 }
 
-/* 기상청 기상특보 조회 (선택 공항 소재지 기준) */
-async function fetchWeatherWarning() {
+/* 기상청 기상특보 조회 (선택 공항 소재지 기준, 5xx 시 재시도) */
+async function fetchWeatherWarning(_retry = true) {
   const city = getCurrentWrnKeys();
   const url  = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
   url.searchParams.set('serviceKey', CONFIG.API_KEY);
@@ -185,16 +190,23 @@ async function fetchWeatherWarning() {
   url.searchParams.set('dataType',  'JSON');
 
   const res = await fetch(url.toString());
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    if (_retry && res.status >= 500) {
+      await new Promise(r => setTimeout(r, 2000));
+      return fetchWeatherWarning(false);
+    }
+    return [];
+  }
   const json = await res.json();
-  const code = json?.response?.header?.resultCode;
-  if (code !== '00') throw new Error(`특보 API 오류: ${code}`);
+  if (json?.response?.header?.resultCode !== '00') return [];
 
   const items = json?.response?.body?.items?.item;
   if (!items) return [];
   const arr = Array.isArray(items) ? items : [items];
   return filterByCity(arr, city);
 }
+
+let _lastGoodData = null;
 
 /* 메인 데이터 페치 */
 async function fetchWeatherData(mode) {
@@ -205,7 +217,6 @@ async function fetchWeatherData(mode) {
 
   try {
     const { base_date, base_time } = getBaseTime();
-    const pad = n => String(n).padStart(2, '0');
     const baseTimeDisplay = `${base_date.slice(4,6)}/${base_date.slice(6,8)} ${base_time.slice(0,2)}:00 발표`;
 
     const [items, warnings, ncst] = await Promise.allSettled([
@@ -220,9 +231,14 @@ async function fetchWeatherData(mode) {
     const weatherWarnings = warnings.status === 'fulfilled' ? warnings.value : [];
     const ncstData = ncst.status === 'fulfilled' ? ncst.value : null;
 
-    return { dailyRows, hourlyRows, generatedAt: new Date(), isReal: true, baseTimeDisplay, weatherWarnings, ncstData };
+    _lastGoodData = { dailyRows, hourlyRows, generatedAt: new Date(), isReal: true, baseTimeDisplay, weatherWarnings, ncstData };
+    return _lastGoodData;
   } catch (err) {
-    console.error('[KMA API 오류] 목업 사용. 원인:', err.message);
+    console.warn('[KMA API 오류]', err.message);
+    if (_lastGoodData) {
+      console.info('[KMA] 일시 오류 — 이전 데이터 유지');
+      return { ..._lastGoodData, baseTimeDisplay: `⚠${_lastGoodData.baseTimeDisplay}` };
+    }
     console.error('API키 설정 확인: ⚙ 설정 → 기상청 오픈API 서비스키 입력 (data.go.kr)');
     return { ...buildMockData(mode), isReal: false, baseTimeDisplay: '⚠목업', weatherWarnings: [] };
   }
