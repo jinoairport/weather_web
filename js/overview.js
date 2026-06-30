@@ -495,65 +495,203 @@ function buildOvDates() {
 }
 
 /* ===================== 특보 API + 레이블 ===================== */
-async function fetchAllWarnings() {
-  if (!CONFIG.API_KEY) return [];
+
+/* 특보 종류 코드 (getWthrWrnList wrnTy) */
+var WRN_TY_MAP = {
+  '01':'강풍','02':'강설','03':'풍랑','04':'호우',
+  '05':'대설','06':'건조','07':'폭풍해일','08':'한파',
+  '09':'태풍','10':'황사','11':'폭염','12':'뇌우','13':'안개',
+};
+
+/* 특보 시각 문자열 포맷 (202406301400 → 6.30 14:00) */
+function fmtWrnTime(s) {
+  s = String(s || '').replace(/\D/g, '');
+  if (s.length < 12) return '';
+  var mo = parseInt(s.slice(4, 6), 10);
+  var dy = parseInt(s.slice(6, 8), 10);
+  var hh = s.slice(8, 10);
+  var mm = s.slice(10, 12);
+  return mo + '.' + dy + ' ' + hh + ':' + mm;
+}
+
+/* 통보문 제목에서 특보 타입·레벨 추출 (getWthrWrnMsg 파싱용) */
+function parseWrnTitle(title) {
+  var t = title || '';
+  var level = t.includes('경보') ? '경보' : t.includes('주의보') ? '주의보' : '';
+  var type  = '';
+  ['태풍','폭설','대설','호우','강풍','풍랑','폭염','한파','건조','황사','뇌우','안개'].forEach(function(k) {
+    if (!type && t.includes(k)) type = k;
+  });
+  return { type: type, level: level };
+}
+
+/* getWthrWrnList → [{type,level,region,start,end}] 구조화 배열 */
+async function fetchWrnList() {
+  if (!CONFIG.API_KEY) return null;
   try {
-    var url = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
+    var url = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnList');
     var key = CONFIG.API_KEY;
     if (key.includes('%')) key = decodeURIComponent(key);
     url.searchParams.set('serviceKey', key);
     url.searchParams.set('pageNo',    '1');
-    url.searchParams.set('numOfRows', '100');
+    url.searchParams.set('numOfRows', '500');
     url.searchParams.set('dataType',  'JSON');
     var res  = await fetch(url.toString());
     var json = await res.json();
-    if (json?.response?.header?.resultCode !== '00') return [];
+    if (json?.response?.header?.resultCode !== '00') return null;
     var items = json?.response?.body?.items?.item;
     if (!items) return [];
-    return Array.isArray(items) ? items : [items];
+    var arr = Array.isArray(items) ? items : [items];
+    return arr.map(function(w) {
+      var ty  = w.wrnTy || '';
+      var lv  = w.wrnLv || '';
+      return {
+        type:   WRN_TY_MAP[ty] || ty,
+        level:  lv === '2' ? '경보' : '주의보',
+        region: (w.wrnStnm || '').trim(),
+        start:  fmtWrnTime(w.tmSt || w.tmFc || ''),
+        end:    fmtWrnTime(w.tmEf || ''),
+      };
+    });
   } catch(e) {
-    return [];
+    return null;
   }
 }
 
-/* 특보 목록 → 헤더 레이블 문자열 */
-function buildWarnLabel(warnings) {
-  if (!warnings || !warnings.length) return '*호우특보';
+/* getWthrWrnMsg 통보문 → [{type,level,region,start,end}] 파싱 */
+function parseWrnMsgItems(msgs) {
+  var result = [];
+  (msgs || []).forEach(function(m) {
+    var parsed = parseWrnTitle(m.wrnTitle || m.title || '');
+    if (!parsed.type) return;
+    var regions = (m.wrnStnm || '').split(/[,、]\s*/);
+    regions.forEach(function(r) {
+      var rTrim = r.trim();
+      if (rTrim) {
+        result.push({
+          type:   parsed.type,
+          level:  parsed.level,
+          region: rTrim,
+          start:  fmtWrnTime(m.tmFc || ''),
+          end:    fmtWrnTime(m.tmEf || ''),
+        });
+      }
+    });
+  });
+  return result;
+}
 
-  var types = {};  /* {호우:true, 폭설:true, ...} */
+/* 특보 전체 조회: {list:[…], msgs:[…]} 반환
+   list = 공항별 매칭용 구조화 배열
+   msgs = 헤더 레이블용 원본 통보문 배열 */
+async function fetchAllWarnings() {
+  if (!CONFIG.API_KEY) return { list: [], msgs: [] };
+
+  /* getWthrWrnMsg (헤더 레이블용 + list 파싱 fallback) */
+  var msgs = [];
+  try {
+    var url2 = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
+    var key2 = CONFIG.API_KEY;
+    if (key2.includes('%')) key2 = decodeURIComponent(key2);
+    url2.searchParams.set('serviceKey', key2);
+    url2.searchParams.set('pageNo',    '1');
+    url2.searchParams.set('numOfRows', '100');
+    url2.searchParams.set('dataType',  'JSON');
+    var res2  = await fetch(url2.toString());
+    var json2 = await res2.json();
+    if (json2?.response?.header?.resultCode === '00') {
+      var items2 = json2?.response?.body?.items?.item;
+      msgs = items2 ? (Array.isArray(items2) ? items2 : [items2]) : [];
+    }
+  } catch(e2) { /* getWthrWrnMsg 실패 무시 */ }
+
+  /* getWthrWrnList 우선, 실패하면 getWthrWrnMsg 파싱으로 대체 */
+  var listResult = await fetchWrnList();
+  var list = listResult !== null ? listResult : parseWrnMsgItems(msgs);
+
+  return { list: list, msgs: msgs };
+}
+
+/* 헤더 레이블용 문자열 빌드 (통보문 제목 기반) */
+function buildWarnLabel(msgs) {
+  if (!msgs || !msgs.length) return '*호우특보';
+  var types = {};
   var WRN_MAP = [
-    { keys:['태풍'],                tag:'태풍'  },
-    { keys:['대설','폭설','착설'],   tag:'폭설'  },
-    { keys:['호우','강수'],          tag:'호우'  },
-    { keys:['강풍','풍랑'],          tag:'강풍'  },
-    { keys:['폭염'],                 tag:'폭염'  },
-    { keys:['한파'],                 tag:'한파'  },
-    { keys:['건조'],                 tag:'건조'  },
+    { keys:['태풍'],              tag:'태풍' },
+    { keys:['대설','폭설','착설'], tag:'폭설' },
+    { keys:['호우','강수'],        tag:'호우' },
+    { keys:['강풍','풍랑'],        tag:'강풍' },
+    { keys:['폭염'],               tag:'폭염' },
+    { keys:['한파'],               tag:'한파' },
+    { keys:['건조'],               tag:'건조' },
   ];
-  warnings.forEach(function(w) {
+  msgs.forEach(function(w) {
     var title = (w.wrnTitle || w.title || '');
     WRN_MAP.forEach(function(m) {
       if (m.keys.some(function(k){ return title.includes(k); }))
         types[m.tag] = true;
     });
   });
-
-  /* 강수 주 타입 결정 (태풍>폭설>호우) */
   var primary = types['태풍'] ? '태풍' : types['폭설'] ? '폭설' : '호우';
-  /* 나머지 부가 타입 */
-  var extras = ['강풍','폭염','한파','건조','태풍'].filter(function(t) {
+  var extras  = ['강풍','폭염','한파','건조','태풍'].filter(function(t) {
     return types[t] && t !== primary;
   });
-
   var label = '*' + primary + '특보';
   if (extras.length)
-    label += ', ' + extras.map(function(t){return t+'특보';}).join(', ');
+    label += ', ' + extras.map(function(t){ return t+'특보'; }).join(', ');
   return label;
 }
 
-function updateWarnLabel(warnings) {
+function updateWarnLabel(msgs) {
   var el = document.getElementById('warn-label');
-  if (el) el.textContent = buildWarnLabel(warnings);
+  if (el) el.textContent = buildWarnLabel(msgs);
+}
+
+/* 특보 list → 공항코드별 매칭 맵 {code:[{type,level,start,end}]} */
+function buildAptWarnMap(list) {
+  var map = {};
+  AIRPORTS.forEach(function(apt) { map[apt.code] = []; });
+  (list || []).forEach(function(w) {
+    var region = w.region || '';
+    AIRPORTS.forEach(function(apt) {
+      var kw = apt.wrnCity || '';
+      if (!kw || !region.includes(kw)) return;
+      /* 같은 타입·레벨 중복 방지 */
+      var dup = map[apt.code].some(function(x) {
+        return x.type === w.type && x.level === w.level;
+      });
+      if (!dup) map[apt.code].push({ type: w.type, level: w.level, start: w.start, end: w.end });
+    });
+  });
+  return map;
+}
+
+/* 특보 배열 → ov-warn-cell innerHTML */
+function renderWarnCell(warns) {
+  if (!warns || !warns.length) return '-';
+  return warns.map(function(w) {
+    var label = (w.type || '') + (w.level || '');
+    var time  = '';
+    if (w.start && w.end)       time = w.start + '~' + w.end;
+    else if (w.end)             time = '~' + w.end;
+    else if (w.start)           time = w.start + '~';
+    return label + (time ? '<br><small style="font-size:0.75em;font-weight:normal">' + time + '</small>' : '');
+  }).join('<br>');
+}
+
+/* 렌더된 테이블의 ov-warn-cell 에 특보 내용 주입 */
+function applyWarnCells(warnMap) {
+  document.querySelectorAll('.ov-warn-cell[data-code]').forEach(function(cell) {
+    var code  = cell.dataset.code;
+    var warns = warnMap[code] || [];
+    cell.innerHTML = renderWarnCell(warns);
+    /* 배경색: 경보 > 주의보 > 없음 */
+    var hasAlert  = warns.some(function(w){ return w.level === '경보'; });
+    var hasNotice = warns.some(function(w){ return w.level === '주의보'; });
+    cell.style.backgroundColor = hasAlert ? '#ffd6d6' : hasNotice ? '#fffbe6' : '';
+    cell.style.color            = hasAlert ? '#c00'    : hasNotice ? '#a06000' : '';
+    cell.style.fontWeight       = hasAlert ? 'bold'    : '';
+  });
 }
 
 /* ===================== 테이블 렌더 ===================== */
@@ -615,7 +753,7 @@ function renderOvTable(allData, dates) {
     /* ── 날씨 행 ── */
     h += '<tr class="ov-wx-row">';
     h += '<td class="ov-apt-cell" rowspan="3">' + apt.name + '</td>';
-    h += '<td class="ov-warn-cell" rowspan="3" contenteditable="true">-</td>';
+    h += '<td class="ov-warn-cell" data-code="' + apt.code + '" rowspan="3" contenteditable="true">-</td>';
     h += '<td class="ov-label">날씨</td>';
     dates.forEach(function(d) {
       var isTd = d.toDateString() === todayStr;
@@ -842,8 +980,12 @@ async function loadAll() {
 
   renderOvTable(allData, dates);
 
-  /* 특보 API → 헤더 레이블 갱신 (비동기, 테이블 렌더 후) */
-  fetchAllWarnings().then(function(w){ updateWarnLabel(w); });
+  /* 특보 API → 헤더 레이블 + 공항별 특보현황 칸 갱신 (비동기, 테이블 렌더 후) */
+  fetchAllWarnings().then(function(result) {
+    updateWarnLabel(result.msgs);
+    var warnMap = buildAptWarnMap(result.list);
+    applyWarnCells(warnMap);
+  });
 
   /* 레이더 이미지 갱신 */
   loadRadarImage();
