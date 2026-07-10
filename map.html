@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>공항 기상 현황 지도</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; background: #f0f4f8; }
+
+    #hd {
+      position: fixed; top: 0; left: 0; right: 0; height: 46px;
+      background: #1b3a6b; color: #fff;
+      display: flex; align-items: center; padding: 0 14px; gap: 10px; z-index: 1000;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+    }
+    #hd h1 { font-size: 14px; font-weight: 600; letter-spacing: .3px; }
+    .hd-back {
+      background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.25);
+      color: #fff; padding: 3px 10px; border-radius: 4px; cursor: pointer;
+      font-size: 12px; font-family: inherit;
+    }
+    .hd-back:hover { background: rgba(255,255,255,.28); }
+    #hd-time { margin-left: auto; font-size: 11px; opacity: .65; }
+
+    #map { position: absolute; top: 46px; left: 0; right: 0; bottom: 0; }
+
+    /* ── 마커 ── */
+    .apm {
+      background: #fff;
+      border: 2px solid #1b3a6b;
+      border-radius: 8px;
+      padding: 4px 7px 3px;
+      text-align: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,.22);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: transform .12s, box-shadow .12s;
+    }
+    .apm:hover { transform: scale(1.07); box-shadow: 0 4px 14px rgba(0,0,0,.3); }
+    .apm.rain  { border-color: #1565c0; background: #e3f2fd; }
+    .apm.snow  { border-color: #7b1fa2; background: #f3e5f5; }
+    .apm.warn  { border-color: #c62828; background: #fff3f3; }
+    .apm-icon  { font-size: 20px; line-height: 1.15; }
+    .apm-tmp   { font-size: 13px; font-weight: 700; color: #1b3a6b; }
+    .apm-name  { font-size: 10px; color: #555; margin-top: 1px; }
+    .apm-load  { font-size: 18px; opacity: .4; }
+
+    /* ── 팝업 ── */
+    .leaflet-popup-content-wrapper { border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,.2); }
+    .leaflet-popup-content { font-family: 'Malgun Gothic', sans-serif; margin: 12px 14px; min-width: 168px; }
+    .pp-head {
+      font-size: 14px; font-weight: 700; color: #1b3a6b;
+      border-bottom: 1px solid #e0e6f0; padding-bottom: 7px; margin-bottom: 8px;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .pp-code { font-size: 10px; color: #999; font-weight: 400; }
+    .pp-row  { display: flex; justify-content: space-between; font-size: 12px; margin: 4px 0; }
+    .pp-lbl  { color: #888; }
+    .pp-val  { font-weight: 600; color: #222; }
+    .pp-go {
+      display: block; margin-top: 11px; text-align: center;
+      background: #1b3a6b; color: #fff; padding: 6px;
+      border-radius: 6px; text-decoration: none; font-size: 12px;
+      transition: background .15s;
+    }
+    .pp-go:hover { background: #2a5298; }
+
+    /* ── 로딩 ── */
+    #overlay {
+      position: fixed; top: 46px; left: 0; right: 0; bottom: 0;
+      background: rgba(240,244,248,.72); backdrop-filter: blur(2px);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      z-index: 800; gap: 10px;
+    }
+    #overlay p { font-size: 13px; color: #445; }
+    .spinner {
+      width: 34px; height: 34px; border: 3px solid #cbd5e1;
+      border-top-color: #1b3a6b; border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── 범례 ── */
+    #legend {
+      position: fixed; bottom: 16px; left: 12px; z-index: 900;
+      background: rgba(255,255,255,.92); border: 1px solid #dde3ed;
+      border-radius: 8px; padding: 8px 12px; font-size: 11px; color: #445;
+      box-shadow: 0 2px 8px rgba(0,0,0,.12);
+    }
+    #legend b { display: block; margin-bottom: 4px; color: #1b3a6b; font-size: 11px; }
+    .leg-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+    .leg-dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid; flex-shrink: 0; }
+  </style>
+</head>
+<body>
+
+<div id="hd">
+  <button class="hd-back" onclick="history.back()">← 뒤로</button>
+  <h1>✈ 전국 공항 기상 현황</h1>
+  <span id="hd-time"></span>
+</div>
+
+<div id="map"></div>
+
+<div id="overlay">
+  <div class="spinner"></div>
+  <p>공항 기상 데이터 불러오는 중…</p>
+</div>
+
+<div id="legend">
+  <b>범례</b>
+  <div class="leg-row"><div class="leg-dot" style="border-color:#1b3a6b;background:#fff"></div> 맑음/흐림</div>
+  <div class="leg-row"><div class="leg-dot" style="border-color:#1565c0;background:#e3f2fd"></div> 비/소나기</div>
+  <div class="leg-row"><div class="leg-dot" style="border-color:#7b1fa2;background:#f3e5f5"></div> 눈</div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="js/apikey.js"></script>
+<script src="js/config.js"></script>
+<script src="js/data.js"></script>
+<script>
+(async function () {
+
+  /* ── 지도 초기화 ── */
+  const map = L.map('map', {
+    center: [36.3, 127.9], zoom: 7,
+    zoomControl: true,
+  });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://osm.org/copyright">OpenStreetMap</a>',
+    maxZoom: 14,
+  }).addTo(map);
+
+  /* ── 공항 위경도 ── */
+  const COORDS = {
+    GMP: [37.5583, 126.7943],
+    CJU: [33.5113, 126.4929],
+    PUS: [35.1795, 128.9382],
+    TAE: [35.8942, 128.6588],
+    CJJ: [36.7172, 127.4993],
+    KWJ: [35.1264, 126.8088],
+    RSU: [34.8423, 127.6168],
+    MWX: [34.9913, 126.3826],
+    KPO: [35.9879, 129.4199],
+    KUV: [35.9038, 126.6159],
+    WJU: [37.4380, 127.9595],
+    HIN: [35.0886, 128.0706],
+    YNY: [38.0613, 128.6694],
+    USN: [35.5935, 129.3520],
+  };
+
+  /* ── 날씨 헬퍼 ── */
+  function wxEmoji(pty, sky) {
+    if (pty >= 5) return pty >= 6 ? '🌨' : '🌦';
+    if (pty === 4) return '🌦';
+    if (pty === 3) return '❄️';
+    if (pty === 2) return '🌨';
+    if (pty === 1) return '🌧';
+    if (sky === 4) return '☁️';
+    if (sky === 3) return '⛅';
+    return '☀️';
+  }
+  function wxLabel(pty, sky) {
+    if (pty === 7 || pty === 6) return '눈날림/비';
+    if (pty === 5) return '빗방울';
+    if (pty === 4) return '소나기';
+    if (pty === 3) return '눈';
+    if (pty === 2) return '비/눈';
+    if (pty === 1) return '비';
+    if (sky === 4) return '흐림';
+    if (sky === 3) return '구름많음';
+    return '맑음';
+  }
+  function markerClass(pty) {
+    if (pty === 3 || pty === 7) return ' snow';
+    if (pty >= 1) return ' rain';
+    return '';
+  }
+  function tmpColor(t) {
+    if (t >= 35) return '#c62828';
+    if (t >= 30) return '#e65100';
+    if (t <= 0)  return '#1565c0';
+    return '#1b3a6b';
+  }
+
+  /* ── 마커 HTML ── */
+  function iconHtml(apt, wx) {
+    if (!wx) return `<div class="apm"><div class="apm-load">✈</div><div class="apm-name">${apt.name}</div></div>`;
+    const pty = wx.PTY || 0, sky = wx.SKY || 1;
+    const tmp = wx.T1H !== undefined ? Math.round(wx.T1H) : null;
+    const cls = markerClass(pty);
+    const col = tmp !== null ? tmpColor(tmp) : '#1b3a6b';
+    return `<div class="apm${cls}">
+      <div class="apm-icon">${wxEmoji(pty, sky)}</div>
+      <div class="apm-tmp" style="color:${col}">${tmp !== null ? tmp + '°' : '-'}</div>
+      <div class="apm-name">${apt.name}</div>
+    </div>`;
+  }
+
+  /* ── 팝업 HTML ── */
+  function popupHtml(apt, wx) {
+    const pty = wx?.PTY || 0, sky = wx?.SKY || 1;
+    const tmp  = wx?.T1H  !== undefined ? Math.round(wx.T1H)  + '°C' : '-';
+    const wsd  = wx?.WSD  !== undefined ? wx.WSD + ' m/s' : '-';
+    const reh  = wx?.REH  !== undefined ? wx.REH + '%' : '-';
+    const rn1  = wx?.RN1  && wx.RN1 !== '강수없음' ? wx.RN1 : '-';
+    const cond = wxLabel(pty, sky);
+    return `
+      <div class="pp-head">${wxEmoji(pty, sky)} ${apt.name}공항 <span class="pp-code">${apt.code}</span></div>
+      <div class="pp-row"><span class="pp-lbl">날씨</span><span class="pp-val">${cond}</span></div>
+      <div class="pp-row"><span class="pp-lbl">기온</span><span class="pp-val">${tmp}</span></div>
+      <div class="pp-row"><span class="pp-lbl">풍속</span><span class="pp-val">${wsd}</span></div>
+      <div class="pp-row"><span class="pp-lbl">습도</span><span class="pp-val">${reh}</span></div>
+      <div class="pp-row"><span class="pp-lbl">강수량</span><span class="pp-val">${rn1}</span></div>
+      <a class="pp-go" href="index.html?apt=${apt.code}">상세 기상정보 →</a>`;
+  }
+
+  /* ── 초단기실황 fetch ── */
+  function getNcstBase() {
+    const now = new Date();
+    if (now.getMinutes() < 40) now.setHours(now.getHours() - 1);
+    const p = n => String(n).padStart(2, '0');
+    return {
+      base_date: now.getFullYear() + p(now.getMonth()+1) + p(now.getDate()),
+      base_time: p(now.getHours()) + '00',
+    };
+  }
+
+  async function fetchNcst(nx, ny, key) {
+    const { base_date, base_time } = getNcstBase();
+    const url = new URL('https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst');
+    url.searchParams.set('serviceKey', key);
+    url.searchParams.set('pageNo',     '1');
+    url.searchParams.set('numOfRows',  '10');
+    url.searchParams.set('dataType',   'JSON');
+    url.searchParams.set('base_date',  base_date);
+    url.searchParams.set('base_time',  base_time);
+    url.searchParams.set('nx', nx);
+    url.searchParams.set('ny', ny);
+    const res  = await fetch(url.toString());
+    const json = await res.json();
+    const items = json?.response?.body?.items?.item || [];
+    if (!items.length) return null;
+    const obj = {};
+    (Array.isArray(items) ? items : [items]).forEach(i => {
+      obj[i.category] = isNaN(i.obsrValue) ? i.obsrValue : parseFloat(i.obsrValue);
+    });
+    return obj;
+  }
+
+  /* ── 마커 생성 (로딩 아이콘) ── */
+  await CONFIG.ready;
+  const key = CONFIG.API_KEY.includes('%') ? decodeURIComponent(CONFIG.API_KEY) : CONFIG.API_KEY;
+
+  const mkIcon = html => L.divIcon({ html, className: '', iconSize: [66, 66], iconAnchor: [33, 33], popupAnchor: [0, -35] });
+
+  const entries = {};
+  AIRPORTS.forEach(apt => {
+    const coords = COORDS[apt.code];
+    if (!coords) return;
+    const marker = L.marker(coords, { icon: mkIcon(iconHtml(apt, null)) }).addTo(map);
+    marker.bindPopup('', { maxWidth: 230, className: '' });
+    marker.on('click', () => {
+      const pp = entries[apt.code]?.pp || '<div style="padding:8px;color:#888;font-size:12px;">로딩 중…</div>';
+      marker.getPopup().setContent(pp).openOn(map);
+    });
+    entries[apt.code] = { apt, marker, pp: null };
+  });
+
+  /* ── 날씨 병렬 fetch ── */
+  const results = await Promise.allSettled(
+    AIRPORTS.map(apt => fetchNcst(apt.nx, apt.ny, key).then(wx => ({ apt, wx })).catch(() => ({ apt, wx: null })))
+  );
+
+  results.forEach(r => {
+    if (r.status !== 'fulfilled') return;
+    const { apt, wx } = r.value;
+    const e = entries[apt.code];
+    if (!e) return;
+    e.marker.setIcon(mkIcon(iconHtml(apt, wx)));
+    e.pp = popupHtml(apt, wx);
+  });
+
+  document.getElementById('overlay').style.display = 'none';
+
+  /* ── 현재 시각 표시 ── */
+  function updateTime() {
+    const now = new Date();
+    const p = n => String(n).padStart(2,'0');
+    document.getElementById('hd-time').textContent =
+      `기준: ${now.getMonth()+1}/${now.getDate()} ${p(now.getHours())}:${p(now.getMinutes())}`;
+  }
+  updateTime();
+
+  /* ── URL 파라미터로 공항 자동 선택 ── */
+  const params = new URLSearchParams(location.search);
+  const focusCode = params.get('apt');
+  if (focusCode && entries[focusCode]) {
+    const e = entries[focusCode];
+    map.setView(e.marker.getLatLng(), 10);
+    setTimeout(() => e.marker.openPopup(), 400);
+  }
+
+})();
+</script>
+</body>
+</html>

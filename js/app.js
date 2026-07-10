@@ -504,7 +504,8 @@ function initAirportPanel() {
     btn.addEventListener('click', () => setAirport(apt.code));
     grid.appendChild(btn);
   });
-  const saved = localStorage.getItem('airport_code') || 'PUS';
+  const urlApt = new URLSearchParams(location.search).get('apt');
+  const saved = urlApt || localStorage.getItem('airport_code') || 'PUS';
   setAirport(saved);
 }
 
