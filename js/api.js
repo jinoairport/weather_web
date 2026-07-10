@@ -116,47 +116,45 @@ function parseVilageFcst(items) {
   return { dailyRows, hourlyRows };
 }
 
-/* 초단기실황 발표시각 계산 — 매 10분 발표 (0,10,20,30,40,50분), 약 10분 후 제공 */
+/* 초단기예보 발표시각 계산 — 매시 30분 발표 */
 function getNcstBaseTime() {
-  const now     = new Date();
-  const pad     = n => String(n).padStart(2, '0');
-  const d       = new Date(now);
-  // 현재 시각에서 10분(버퍼) 뺀 뒤 10분 단위 내림
-  const totalMin = now.getHours() * 60 + now.getMinutes() - 10;
-  if (totalMin < 0) {
-    d.setDate(d.getDate() - 1);
-    const t = 24 * 60 + totalMin;
-    return {
-      base_date: `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`,
-      base_time: `${pad(Math.floor(t / 60))}${pad(Math.floor((t % 60) / 10) * 10)}`,
-    };
-  }
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const d   = new Date(now);
+  if (now.getMinutes() < 30) d.setHours(d.getHours() - 1);
   return {
     base_date: `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`,
-    base_time: `${pad(Math.floor(totalMin / 60))}${pad(Math.floor((totalMin % 60) / 10) * 10)}`,
+    base_time: `${pad(d.getHours())}30`,
   };
 }
 
-/* 초단기실황 조회 — 매시간 발표, 현재 기온·강수량·바람 실측값 */
+/* 초단기예보 조회 — 전국 격자 커버, SKY·T1H 포함 (실황 대비 관측소 위치 불일치 -999 없음) */
 async function fetchUltraNcst() {
   const { base_date, base_time } = getNcstBaseTime();
-  const items = await kmaFetch('getUltraSrtNcst', { base_date, base_time });
-  const map = {};
-  for (const it of (Array.isArray(items) ? items : [items])) map[it.category] = it.obsrValue;
+  const items = await kmaFetch('getUltraSrtFcst', { base_date, base_time });
+  const arr = Array.isArray(items) ? items : [items];
+  // 가장 가까운 예보시각 항목만 사용
+  const nearestTime = [...new Set(arr.map(i => i.fcstTime))].sort()[0];
+  const raw = {};
+  arr.filter(i => i.fcstTime === nearestTime).forEach(i => {
+    const v = parseFloat(i.fcstValue);
+    if (!isNaN(v) && v !== -999) raw[i.category] = v;
+    else if (isNaN(v))           raw[i.category] = i.fcstValue;
+  });
 
-  const pty    = parseInt(map.PTY || '0');
-  const rn1Raw = map.RN1 || '강수없음';
+  const pty    = raw.PTY || 0;
+  const rn1Raw = raw.RN1 || '강수없음';
   const rn1    = rn1Raw === '강수없음' ? 0
                : rn1Raw === '1mm 미만' ? 0.5
                : parseFloat(rn1Raw) || 0;
 
   return {
-    tmp:  parseFloat(map.T1H || '20'),
+    tmp:  raw.T1H  ?? 20,
     rn1,
     rn1Raw,
-    reh:  parseInt(map.REH || '60'),
-    wsd:  parseFloat(map.WSD || '0'),
-    vec:  parseInt(map.VEC || '180'),
+    reh:  raw.REH  ?? 60,
+    wsd:  raw.WSD  ?? 0,
+    vec:  raw.VEC  ?? 180,
     pty,
     baseTime: base_time,
   };
