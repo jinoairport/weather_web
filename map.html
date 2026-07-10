@@ -217,23 +217,19 @@
       <a class="pp-go" href="index.html?apt=${apt.code}">상세 기상정보 →</a>`;
   }
 
-  /* ── 초단기실황 fetch ── */
-  function getNcstBase() {
-    const now = new Date();
-    if (now.getMinutes() < 40) now.setHours(now.getHours() - 1);
-    const p = n => String(n).padStart(2, '0');
-    return {
-      base_date: now.getFullYear() + p(now.getMonth()+1) + p(now.getDate()),
-      base_time: p(now.getHours()) + '00',
-    };
-  }
-
+  /* ── 초단기예보 fetch (전국 격자 커버, SKY 포함) ── */
   async function fetchNcst(nx, ny, key) {
-    const { base_date, base_time } = getNcstBase();
-    const url = new URL('https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst');
+    const now = new Date();
+    // 초단기예보: 매시 30분 발표. 30분 미만이면 이전 시각 기준
+    if (now.getMinutes() < 30) now.setHours(now.getHours() - 1);
+    const p = n => String(n).padStart(2, '0');
+    const base_date = now.getFullYear() + p(now.getMonth()+1) + p(now.getDate());
+    const base_time = p(now.getHours()) + '30';
+
+    const url = new URL('https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtFcst');
     url.searchParams.set('serviceKey', key);
     url.searchParams.set('pageNo',     '1');
-    url.searchParams.set('numOfRows',  '10');
+    url.searchParams.set('numOfRows',  '60');
     url.searchParams.set('dataType',   'JSON');
     url.searchParams.set('base_date',  base_date);
     url.searchParams.set('base_time',  base_time);
@@ -243,9 +239,12 @@
     const json = await res.json();
     const items = json?.response?.body?.items?.item || [];
     if (!items.length) return null;
+    const arr = Array.isArray(items) ? items : [items];
+    // 가장 가까운 예보시각 항목만 추출
+    const nearestTime = [...new Set(arr.map(i => i.fcstTime))].sort()[0];
     const obj = {};
-    (Array.isArray(items) ? items : [items]).forEach(i => {
-      const val = isNaN(i.obsrValue) ? i.obsrValue : parseFloat(i.obsrValue);
+    arr.filter(i => i.fcstTime === nearestTime).forEach(i => {
+      const val = isNaN(i.fcstValue) ? i.fcstValue : parseFloat(i.fcstValue);
       if (val !== -999) obj[i.category] = val;
     });
     return obj;
