@@ -245,7 +245,8 @@
     if (!items.length) return null;
     const obj = {};
     (Array.isArray(items) ? items : [items]).forEach(i => {
-      obj[i.category] = isNaN(i.obsrValue) ? i.obsrValue : parseFloat(i.obsrValue);
+      const val = isNaN(i.obsrValue) ? i.obsrValue : parseFloat(i.obsrValue);
+      if (val !== -999) obj[i.category] = val;
     });
     return obj;
   }
