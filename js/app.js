@@ -542,5 +542,28 @@ function toggleAirportPanel() {
   panel.style.display = isOpen ? 'none' : '';
 }
 
+/* ===================== 비밀 위치 ===================== */
+function setSecretLocation(location, label, nx, ny, midFcst, midTa) {
+  CONFIG.NX = nx;
+  CONFIG.NY = ny;
+  CONFIG.MID_FCST = midFcst;
+  CONFIG.MID_TA   = midTa;
+
+  document.querySelectorAll('.apt-btn').forEach(b => b.classList.remove('active'));
+
+  setText('doc-dept',      label);
+  setText('doc-title-el',  label + ' 기상정보');
+  setText('doc-foot-dept', label);
+  setText('ctrl-location', location);
+  const ctEl = document.getElementById('ctrl-title-el');
+  if (ctEl) ctEl.textContent = label + ' 기상정보';
+
+  modeManual = false;
+  refreshData();
+
+  const panel = document.getElementById('airport-panel');
+  if (panel) panel.style.display = 'none';
+}
+
 /* ===================== 유틸 ===================== */
 function pad2(n) { return String(n).padStart(2, '0'); }

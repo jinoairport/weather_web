@@ -231,5 +231,15 @@
   <script src="js/render.js"></script>
   <script src="js/api.js"></script>
   <script src="js/app.js"></script>
+
+  <!-- 비밀 위치 버튼 -->
+  <div id="secret-btns" style="position:fixed;bottom:6px;right:8px;display:flex;gap:4px;z-index:9999;">
+    <span onclick="setSecretLocation('수성구 범어동','대구',89,90,'11H10000','11H10201')"
+          style="font-size:10px;color:#bbb;cursor:pointer;opacity:0.18;user-select:none;padding:2px 3px;"
+          onmouseover="this.style.opacity='0.6'" onmouseout="this.style.opacity='0.18'">(대구)</span>
+    <span onclick="setSecretLocation('진안군 주천면','진안',68,91,'11F10000','11F10201')"
+          style="font-size:10px;color:#bbb;cursor:pointer;opacity:0.18;user-select:none;padding:2px 3px;"
+          onmouseover="this.style.opacity='0.6'" onmouseout="this.style.opacity='0.18'">(진안)</span>
+  </div>
 </body>
 </html>
