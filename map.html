@@ -26,12 +26,11 @@
 
     #map { position: absolute; top: 46px; left: 0; right: 0; bottom: 0; }
 
-    /* ── 마커 ── */
+    /* ── 마커 공통 ── */
     .apm {
       background: #fff;
       border: 2px solid #1b3a6b;
       border-radius: 8px;
-      padding: 4px 7px 3px;
       text-align: center;
       box-shadow: 0 2px 8px rgba(0,0,0,.22);
       cursor: pointer;
@@ -41,11 +40,26 @@
     .apm:hover { transform: scale(1.07); box-shadow: 0 4px 14px rgba(0,0,0,.3); }
     .apm.rain  { border-color: #1565c0; background: #e3f2fd; }
     .apm.snow  { border-color: #7b1fa2; background: #f3e5f5; }
-    .apm.warn  { border-color: #c62828; background: #fff3f3; }
-    .apm-icon  { font-size: 20px; line-height: 1.15; }
-    .apm-tmp   { font-size: 13px; font-weight: 700; color: #1b3a6b; }
-    .apm-name  { font-size: 10px; color: #555; margin-top: 1px; }
-    .apm-load  { font-size: 18px; opacity: .4; }
+
+    /* 풀사이즈 (zoom ≥ 9) */
+    .apm-full  { padding: 4px 7px 3px; }
+    .apm-full .apm-icon { font-size: 20px; line-height: 1.15; }
+    .apm-full .apm-tmp  { font-size: 13px; font-weight: 700; }
+    .apm-full .apm-name { font-size: 10px; color: #555; margin-top: 1px; }
+
+    /* 중간 (zoom 7-8): 이름 숨김 */
+    .apm-mid  { padding: 3px 6px 2px; }
+    .apm-mid .apm-icon { font-size: 16px; line-height: 1.1; }
+    .apm-mid .apm-tmp  { font-size: 11px; font-weight: 700; }
+    .apm-mid .apm-name { display: none; }
+
+    /* 미니 (zoom ≤ 6): 이모지만 */
+    .apm-mini { padding: 2px 4px; border-radius: 6px; }
+    .apm-mini .apm-icon { font-size: 13px; line-height: 1; }
+    .apm-mini .apm-tmp  { display: none; }
+    .apm-mini .apm-name { display: none; }
+
+    .apm-load { font-size: 18px; opacity: .4; }
 
     /* ── 팝업 ── */
     .leaflet-popup-content-wrapper { border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,.2); }
@@ -185,14 +199,27 @@
     return '#1b3a6b';
   }
 
+  /* ── 줌 레벨 → 마커 크기 클래스 ── */
+  function sizeClass(zoom) {
+    if (zoom >= 9) return 'apm-full';
+    if (zoom >= 7) return 'apm-mid';
+    return 'apm-mini';
+  }
+  function iconSize(zoom) {
+    if (zoom >= 9) return [66, 70];
+    if (zoom >= 7) return [50, 52];
+    return [36, 36];
+  }
+
   /* ── 마커 HTML ── */
-  function iconHtml(apt, wx) {
-    if (!wx) return `<div class="apm"><div class="apm-load">✈</div><div class="apm-name">${apt.name}</div></div>`;
+  function iconHtml(apt, wx, zoom) {
+    const sc = sizeClass(zoom);
+    if (!wx) return `<div class="apm ${sc}"><div class="apm-load">✈</div><div class="apm-name">${apt.name}</div></div>`;
     const pty = wx.PTY || 0, sky = wx.SKY || 1;
     const tmp = wx.T1H !== undefined ? Math.round(wx.T1H) : null;
     const cls = markerClass(pty);
     const col = tmp !== null ? tmpColor(tmp) : '#1b3a6b';
-    return `<div class="apm${cls}">
+    return `<div class="apm ${sc}${cls}">
       <div class="apm-icon">${wxEmoji(pty, sky)}</div>
       <div class="apm-tmp" style="color:${col}">${tmp !== null ? tmp + '°' : '-'}</div>
       <div class="apm-name">${apt.name}</div>
@@ -254,19 +281,23 @@
   await CONFIG.ready;
   const key = CONFIG.API_KEY.includes('%') ? decodeURIComponent(CONFIG.API_KEY) : CONFIG.API_KEY;
 
-  const mkIcon = html => L.divIcon({ html, className: '', iconSize: [66, 66], iconAnchor: [33, 33], popupAnchor: [0, -35] });
+  function mkIcon(html, zoom) {
+    const [w, h] = iconSize(zoom);
+    return L.divIcon({ html, className: '', iconSize: [w, h], iconAnchor: [w/2, h/2], popupAnchor: [0, -h/2-4] });
+  }
 
   const entries = {};
   AIRPORTS.forEach(apt => {
     const coords = COORDS[apt.code];
     if (!coords) return;
-    const marker = L.marker(coords, { icon: mkIcon(iconHtml(apt, null)) }).addTo(map);
+    const zoom = map.getZoom();
+    const marker = L.marker(coords, { icon: mkIcon(iconHtml(apt, null, zoom), zoom) }).addTo(map);
     marker.bindPopup('', { maxWidth: 230, className: '' });
     marker.on('click', () => {
       const pp = entries[apt.code]?.pp || '<div style="padding:8px;color:#888;font-size:12px;">로딩 중…</div>';
       marker.getPopup().setContent(pp).openOn(map);
     });
-    entries[apt.code] = { apt, marker, pp: null };
+    entries[apt.code] = { apt, marker, pp: null, wx: null };
   });
 
   /* ── 날씨 병렬 fetch ── */
@@ -279,8 +310,18 @@
     const { apt, wx } = r.value;
     const e = entries[apt.code];
     if (!e) return;
-    e.marker.setIcon(mkIcon(iconHtml(apt, wx)));
+    const zoom = map.getZoom();
+    e.wx = wx;
+    e.marker.setIcon(mkIcon(iconHtml(apt, wx, zoom), zoom));
     e.pp = popupHtml(apt, wx);
+  });
+
+  /* ── 줌 변경 시 마커 크기 업데이트 ── */
+  map.on('zoomend', () => {
+    const zoom = map.getZoom();
+    Object.values(entries).forEach(e => {
+      e.marker.setIcon(mkIcon(iconHtml(e.apt, e.wx, zoom), zoom));
+    });
   });
 
   document.getElementById('overlay').style.display = 'none';
