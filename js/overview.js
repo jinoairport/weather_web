@@ -6,6 +6,47 @@ const OV_DAYS = 7;
 var OV_DATES  = [];
 var MID_DATA  = null;   /* 중기예보 사전조회 캐시 { fcstCache, taCache, issuanceDate } */
 
+/* ===================== overview localStorage 캐시 (30분 TTL) ===================== */
+var _OV_CACHE_KEY = 'kma_ov_cache';
+var _OV_CACHE_TTL = 30 * 60 * 1000;
+
+function _saveOvCache(allData) {
+  try {
+    localStorage.setItem(_OV_CACHE_KEY, JSON.stringify({
+      allData: allData.map(function(item) {
+        return {
+          aptCode: item.apt.code,
+          current: item.current,
+          days: item.days.map(function(dy) {
+            return {
+              date: dy.date.toISOString(), amWx: dy.amWx, pmWx: dy.pmWx,
+              tmin: dy.tmin, tmax: dy.tmax, pcp: dy.pcp, sno: dy.sno, hasSnow: dy.hasSnow,
+            };
+          }),
+        };
+      }),
+      _at: Date.now(),
+    }));
+  } catch(e) {}
+}
+
+function _loadOvCache() {
+  try {
+    var raw = localStorage.getItem(_OV_CACHE_KEY);
+    if (!raw) return null;
+    var c = JSON.parse(raw);
+    if (Date.now() - c._at > _OV_CACHE_TTL) return null;
+    var restored = c.allData.map(function(item) {
+      var apt = AIRPORTS.find(function(a) { return a.code === item.aptCode; });
+      if (!apt) return null;
+      item.days.forEach(function(dy) { dy.date = new Date(dy.date); });
+      return { apt: apt, current: item.current, days: item.days };
+    }).filter(Boolean);
+    if (restored.length < AIRPORTS.length) return null;
+    return restored;
+  } catch(e) { return null; }
+}
+
 /* ===================== 날씨 코드 → 텍스트 ===================== */
 function wxTxt(pty, sky) {
   if (pty === 4) return '소나기';
@@ -19,7 +60,8 @@ function wxTxt(pty, sky) {
 }
 
 /* ===================== API — 단기예보 (공항별 좌표) ===================== */
-async function kmaFetchApt(nx, ny) {
+async function kmaFetchApt(nx, ny, _retry) {
+  if (_retry === undefined) _retry = true;
   var bt  = getBaseTime();
   var url = new URL(KMA_BASE + '/getVilageFcst');
   var key = CONFIG.API_KEY;
@@ -33,7 +75,14 @@ async function kmaFetchApt(nx, ny) {
   url.searchParams.set('nx', nx);
   url.searchParams.set('ny', ny);
   var res = await fetch(url.toString());
-  if (!res.ok) throw new Error('HTTP ' + res.status);
+  if (!res.ok) {
+    if (_retry && (res.status >= 500 || res.status === 429)) {
+      var delay = res.status === 429 ? 8000 : 2000;
+      await new Promise(function(r){ setTimeout(r, delay); });
+      return kmaFetchApt(nx, ny, false);
+    }
+    throw new Error('HTTP ' + res.status);
+  }
   var json = await res.json();
   if (json?.response?.header?.resultCode !== '00')
     throw new Error('KMA ' + json?.response?.header?.resultCode);
@@ -41,7 +90,8 @@ async function kmaFetchApt(nx, ny) {
 }
 
 /* ===================== API — 초단기실황 (현재기온·강수형태) ===================== */
-async function kmaFetchNcstApt(nx, ny) {
+async function kmaFetchNcstApt(nx, ny, _retry) {
+  if (_retry === undefined) _retry = true;
   var bt  = getNcstBaseTime();
   var url = new URL(KMA_BASE + '/getUltraSrtNcst');
   var key = CONFIG.API_KEY;
@@ -55,7 +105,14 @@ async function kmaFetchNcstApt(nx, ny) {
   url.searchParams.set('nx', nx);
   url.searchParams.set('ny', ny);
   var res = await fetch(url.toString());
-  if (!res.ok) throw new Error('HTTP ' + res.status);
+  if (!res.ok) {
+    if (_retry && (res.status >= 500 || res.status === 429)) {
+      var delay = res.status === 429 ? 8000 : 2000;
+      await new Promise(function(r){ setTimeout(r, delay); });
+      return kmaFetchNcstApt(nx, ny, false);
+    }
+    throw new Error('HTTP ' + res.status);
+  }
   var json = await res.json();
   if (json?.response?.header?.resultCode !== '00')
     throw new Error('NCST ' + json?.response?.header?.resultCode);
@@ -732,7 +789,10 @@ function buildAptWarnMaps(list) {
     var region = w.region || '';
     AIRPORTS.forEach(function(apt) {
       var keys = apt.wrnKeys && apt.wrnKeys.length ? apt.wrnKeys : [apt.wrnCity || ''];
-      var matched = keys.some(function(kw) { return kw && region.includes(kw); });
+      var matched = keys.some(function(kw) {
+        if (Array.isArray(kw)) return kw.every(function(k) { return k && region.includes(k); });
+        return kw && region.includes(kw);
+      });
       if (!matched) return;
       var map = WRN_PCP_TYPES[w.type] ? pcpMap : othMap;
       var dup = map[apt.code].some(function(x) {
@@ -1060,6 +1120,23 @@ async function loadAll() {
     });
   }
 
+  /* 캐시 유효하면 API 호출 없이 렌더 */
+  var cachedAll = _loadOvCache();
+  if (cachedAll) {
+    console.log('[OV] 캐시 데이터 사용');
+    AIRPORTS.forEach(function(apt) {
+      if (chips[apt.code]) chips[apt.code].className = 'ov-chip done';
+    });
+    renderOvTable(cachedAll, dates);
+    fetchAllWarnings().then(function(result) {
+      updateWarnLabel(result.msgs);
+      var maps = buildAptWarnMaps(result.list);
+      applyWarnCells(maps.pcpMap, maps.othMap);
+    });
+    loadRadarImage();
+    return;
+  }
+
   /* 중기예보 사전조회 (D+3~D+6 토/일 데이터) */
   MID_DATA = null;
   if (CONFIG.API_KEY) {
@@ -1089,6 +1166,7 @@ async function loadAll() {
       await new Promise(function(res){ setTimeout(res, 500); });
   }
 
+  _saveOvCache(allData);
   renderOvTable(allData, dates);
 
   /* 특보 API → 헤더 레이블 + 공항별 특보현황 칸 갱신 (비동기, 테이블 렌더 후) */
@@ -1194,5 +1272,4 @@ function ovSaveKey() {
 window.addEventListener('DOMContentLoaded', async function() {
   await CONFIG.ready;
   await loadAll();
-  setInterval(loadAll, 10 * 60 * 1000);
 });

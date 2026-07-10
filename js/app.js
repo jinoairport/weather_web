@@ -13,8 +13,6 @@ window.addEventListener('DOMContentLoaded', async () => {
   updateDocDate();
   initAirportPanel();   // setAirport() → refreshData() 호출 포함
 
-  // 10분마다 자동 새로고침
-  setInterval(refreshData, 10 * 60 * 1000);
 });
 
 /* ===================== 데이터 로드 ===================== */
