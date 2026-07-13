@@ -180,35 +180,48 @@ function getCurrentWrnKeys() {
 /* 해상 전용 특보 — 공항 운영과 무관하므로 매칭에서 제외 */
 var MARITIME_WARN_TITLES = ['풍랑', '해일', '지진해일'];
 
-/* 특보/예비특보 공통 필터 — wrnKeys 배열 내 배열(AND 조건) 지원 */
+/* 특보/예비특보 공통 필터 — wrnKeys 배열 내 배열(AND 조건) 지원
+   dedup 기준: 더 구체적인 키워드로 매칭된 것 우선 (AND > 긴 단일 > 짧은 단일),
+   구체성이 같을 때만 높은 단계(경보 > 주의보)로 선택 */
 function filterByCity(arr, keys) {
   var keyArr = Array.isArray(keys) ? keys : [keys];
-  var matched = arr.filter(function(w) {
-    // 해상 전용 특보 제외
-    var title = w.wrnTitle || '';
-    if (MARITIME_WARN_TITLES.some(function(t) { return title.includes(t); })) return false;
 
-    var targets = [w.wrnStnm, w.area, w.areaFc, w.wrnTitle].filter(Boolean).join(' ');
-    return keyArr.some(function(kw) {
+  function calcSpec(targets) {
+    return keyArr.reduce(function(max, kw) {
+      var s = 0;
       if (Array.isArray(kw)) {
-        return kw.every(function(k) { return k && targets.includes(k); });
+        s = kw.every(function(k) { return k && targets.includes(k); })
+          ? kw.reduce(function(sum, k) { return sum + k.length; }, 0)
+          : 0;
+      } else {
+        s = (kw && targets.includes(kw)) ? kw.length : 0;
       }
-      return kw && targets.includes(kw);
-    });
+      return Math.max(max, s);
+    }, 0);
+  }
+
+  var matchedWithSpec = [];
+  arr.forEach(function(w) {
+    var title = w.wrnTitle || '';
+    if (MARITIME_WARN_TITLES.some(function(t) { return title.includes(t); })) return;
+    var targets = [w.wrnStnm, w.area, w.areaFc, w.wrnTitle].filter(Boolean).join(' ');
+    var spec = calcSpec(targets);
+    if (spec > 0) matchedWithSpec.push({ w: w, spec: spec });
   });
 
-  // 같은 유형에서 경보/주의보 중 최고 단계만 유지
+  /* 같은 유형: 더 구체적인 매칭 우선, 구체성 동률이면 높은 단계 우선 */
   var best = {};
-  matched.forEach(function(w) {
-    var title = w.wrnTitle || '';
+  matchedWithSpec.forEach(function(item) {
+    var title = item.w.wrnTitle || '';
     var type  = title.replace('경보', '').replace('주의보', '').replace('예비', '').trim();
     var rank  = title.includes('경보') ? 2 : 1;
-    if (!best[type] || rank > best[type]._rank) {
-      best[type] = Object.assign({}, w, { _rank: rank });
+    var ex    = best[type];
+    if (!ex || item.spec > ex._spec || (item.spec === ex._spec && rank > ex._rank)) {
+      best[type] = Object.assign({}, item.w, { _spec: item.spec, _rank: rank });
     }
   });
   return Object.values(best).map(function(w) {
-    var r = Object.assign({}, w); delete r._rank; return r;
+    var r = Object.assign({}, w); delete r._spec; delete r._rank; return r;
   });
 }
 

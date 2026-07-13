@@ -789,28 +789,42 @@ function wrnLevelRank(lv) {
   return (lv === '경보') ? 2 : (lv === '주의보') ? 1 : 0;
 }
 
+/* 공항-region 매칭 구체성 점수: AND 조건 > 긴 단일 키워드 > 짧은 단일 키워드 (0 = 불일치) */
+function aptMatchSpec(apt, region) {
+  var keys = apt.wrnKeys && apt.wrnKeys.length ? apt.wrnKeys : [apt.wrnCity || ''];
+  return keys.reduce(function(max, kw) {
+    var s = 0;
+    if (Array.isArray(kw)) {
+      s = kw.every(function(k) { return k && region.includes(k); })
+        ? kw.reduce(function(sum, k) { return sum + k.length; }, 0)
+        : 0;
+    } else {
+      s = (kw && region.includes(kw)) ? kw.length : 0;
+    }
+    return Math.max(max, s);
+  }, 0);
+}
+
 function buildAptWarnMaps(list) {
   var pcpMap = {}, othMap = {};
   AIRPORTS.forEach(function(apt) { pcpMap[apt.code] = []; othMap[apt.code] = []; });
   (list || []).forEach(function(w) {
-    // 해상 전용 특보는 공항 매칭에서 제외
     if (MARITIME_WARN_TYPES[w.type]) return;
-
     var region = w.region || '';
     AIRPORTS.forEach(function(apt) {
-      var keys = apt.wrnKeys && apt.wrnKeys.length ? apt.wrnKeys : [apt.wrnCity || ''];
-      var matched = keys.some(function(kw) {
-        if (Array.isArray(kw)) return kw.every(function(k) { return k && region.includes(k); });
-        return kw && region.includes(kw);
-      });
-      if (!matched) return;
+      var spec = aptMatchSpec(apt, region);
+      if (!spec) return;
       var map = WRN_PCP_TYPES[w.type] ? pcpMap : othMap;
-      // 같은 유형이 이미 있으면 더 높은 단계(경보 > 주의보)만 유지
       var existIdx = map[apt.code].findIndex(function(x) { return x.type === w.type; });
+      var entry = { type: w.type, level: w.level, start: w.start, end: w.end, _spec: spec };
       if (existIdx === -1) {
-        map[apt.code].push({ type: w.type, level: w.level, start: w.start, end: w.end });
-      } else if (wrnLevelRank(w.level) > wrnLevelRank(map[apt.code][existIdx].level)) {
-        map[apt.code].splice(existIdx, 1, { type: w.type, level: w.level, start: w.start, end: w.end });
+        map[apt.code].push(entry);
+      } else {
+        var cur = map[apt.code][existIdx];
+        /* 더 구체적인 매칭이 우선, 구체성 동률이면 높은 단계 우선 */
+        if (spec > (cur._spec || 0) || (spec === (cur._spec || 0) && wrnLevelRank(w.level) > wrnLevelRank(cur.level))) {
+          map[apt.code].splice(existIdx, 1, entry);
+        }
       }
     });
   });
