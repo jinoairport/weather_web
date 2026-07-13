@@ -635,7 +635,11 @@ function fmtWrnTime(s) {
 /* 통보문 제목에서 특보 타입·레벨 추출 (getWthrWrnMsg 파싱용) */
 function parseWrnTitle(title) {
   var t = title || '';
-  var level = t.includes('경보') ? '경보' : t.includes('주의보') ? '주의보' : '';
+  /* 예비특보를 먼저 체크해야 '경보' 포함 여부 오판을 막음 */
+  var level = t.includes('예비') ? '예비특보'
+            : t.includes('경보') ? '경보'
+            : t.includes('주의보') ? '주의보'
+            : '';
   var type  = '';
   ['태풍','폭설','대설','호우','강풍','풍랑','폭염','한파','건조','황사','뇌우','안개'].forEach(function(k) {
     if (!type && t.includes(k)) type = k;
@@ -784,9 +788,9 @@ var WRN_PCP_TYPES = { '호우': 1, '대설': 1, '강설': 1, '태풍': 1 };
 /* 공항에 무관한 해상 전용 특보 유형 */
 var MARITIME_WARN_TYPES = { '풍랑': 1, '해일': 1, '지진해일': 1 };
 
-/* 단계 우선순위: 경보 > 주의보 */
+/* 단계 우선순위: 경보=3 > 주의보=2 > 예비특보=1 */
 function wrnLevelRank(lv) {
-  return (lv === '경보') ? 2 : (lv === '주의보') ? 1 : 0;
+  return (lv === '경보') ? 3 : (lv === '주의보') ? 2 : (lv === '예비특보') ? 1 : 0;
 }
 
 /* 공항-region 매칭 구체성 점수: AND 조건 > 긴 단일 키워드 > 짧은 단일 키워드 (0 = 불일치) */
@@ -821,8 +825,8 @@ function buildAptWarnMaps(list) {
         map[apt.code].push(entry);
       } else {
         var cur = map[apt.code][existIdx];
-        /* 더 구체적인 매칭이 우선, 구체성 동률이면 높은 단계 우선 */
-        if (spec > (cur._spec || 0) || (spec === (cur._spec || 0) && wrnLevelRank(w.level) > wrnLevelRank(cur.level))) {
+        /* 더 구체적인 매칭이 우선; 동점이면 낮은 단계(예비<주의보<경보) 유지 — 광역 경보가 지역 주의보를 덮는 방지 */
+        if (spec > (cur._spec || 0) || (spec === (cur._spec || 0) && wrnLevelRank(w.level) < wrnLevelRank(cur.level))) {
           map[apt.code].splice(existIdx, 1, entry);
         }
       }
@@ -848,8 +852,9 @@ function renderWarnCell(warns) {
 function styleWarnCell(cell, warns) {
   var hasAlert  = warns.some(function(w){ return w.level === '경보'; });
   var hasNotice = warns.some(function(w){ return w.level === '주의보'; });
-  cell.style.backgroundColor = hasAlert ? '#ffd6d6' : hasNotice ? '#fffbe6' : '';
-  cell.style.color            = hasAlert ? '#c00'    : hasNotice ? '#a06000' : '';
+  var hasPre    = warns.some(function(w){ return w.level === '예비특보'; });
+  cell.style.backgroundColor = hasAlert ? '#ffd6d6' : hasNotice ? '#fffbe6' : hasPre ? '#f0f4ff' : '';
+  cell.style.color            = hasAlert ? '#c00'    : hasNotice ? '#a06000' : hasPre ? '#3a5ca0' : '';
   cell.style.fontWeight       = hasAlert ? 'bold'    : '';
 }
 

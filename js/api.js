@@ -181,8 +181,9 @@ function getCurrentWrnKeys() {
 var MARITIME_WARN_TITLES = ['풍랑', '해일', '지진해일'];
 
 /* 특보/예비특보 공통 필터 — wrnKeys 배열 내 배열(AND 조건) 지원
-   dedup 기준: 더 구체적인 키워드로 매칭된 것 우선 (AND > 긴 단일 > 짧은 단일),
-   구체성이 같을 때만 높은 단계(경보 > 주의보)로 선택 */
+   dedup 기준:
+   ① 더 구체적인 키워드로 매칭된 것 우선 (AND > 긴 단일 > 짧은 단일)
+   ② 구체성 동률이면 낮은 단계 우선 (예비<주의보<경보) — 경남 경보가 부산 주의보를 잘못 덮는 방지 */
 function filterByCity(arr, keys) {
   var keyArr = Array.isArray(keys) ? keys : [keys];
 
@@ -209,14 +210,16 @@ function filterByCity(arr, keys) {
     if (spec > 0) matchedWithSpec.push({ w: w, spec: spec });
   });
 
-  /* 같은 유형: 더 구체적인 매칭 우선, 구체성 동률이면 높은 단계 우선 */
+  /* rank: 예비특보=1, 주의보=2, 경보=3 */
   var best = {};
   matchedWithSpec.forEach(function(item) {
     var title = item.w.wrnTitle || '';
-    var type  = title.replace('경보', '').replace('주의보', '').replace('예비', '').trim();
-    var rank  = title.includes('경보') ? 2 : 1;
+    /* 예비특보 먼저 제거한 뒤 경보/주의보 제거 → '강풍예비특보' → '강풍' 올바르게 추출 */
+    var type  = title.replace('예비특보', '').replace('경보', '').replace('주의보', '').replace('예비', '').replace('특보', '').trim();
+    var rank  = title.includes('예비') ? 1 : title.includes('주의보') ? 2 : title.includes('경보') ? 3 : 0;
     var ex    = best[type];
-    if (!ex || item.spec > ex._spec || (item.spec === ex._spec && rank > ex._rank)) {
+    /* 더 구체적인 매칭이 우선; 동점이면 낮은 단계(주의보, 예비)를 유지 */
+    if (!ex || item.spec > ex._spec || (item.spec === ex._spec && rank < ex._rank)) {
       best[type] = Object.assign({}, item.w, { _spec: item.spec, _rank: rank });
     }
   });
