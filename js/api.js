@@ -205,7 +205,9 @@ function filterByCity(arr, keys) {
   arr.forEach(function(w) {
     var title = w.wrnTitle || '';
     if (MARITIME_WARN_TITLES.some(function(t) { return title.includes(t); })) return;
-    var targets = [w.wrnStnm, w.area, w.areaFc, w.wrnTitle].filter(Boolean).join(' ');
+    /* t6=현재 특보 지역목록, t2=지역 요약, area/areaFc=지역 필드
+       wrnStnm(발표기관 "부산지방기상청")·wrnTitle은 제외 → '부산' 키워드에 경남 경보가 오매칭되는 근본 원인 차단 */
+    var targets = [w.t6, w.t2, w.area, w.areaFc].filter(Boolean).join(' ');
     var spec = calcSpec(targets);
     if (spec > 0) matchedWithSpec.push({ w: w, spec: spec });
   });

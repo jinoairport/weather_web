@@ -665,13 +665,15 @@ async function fetchWrnMsgDetail(key, stnId, tmFc, tmSeq) {
   return Array.isArray(item) ? item[0] : item;
 }
 
-/* 통보문 아이템에서 지역명 텍스트 추출 */
+/* 통보문 아이템에서 지역명 텍스트 추출
+   wrnStnm(발표기관명)은 제외 — '부산지방기상청'이 '부산' 키워드에 오매칭 방지 */
 function extractRegionText(detail) {
   if (!detail) return '';
-  /* 실제 API 응답 필드: t6 = 현재 발효 특보 지역, t2 = 제목 행 지역 요약 */
+  /* t6 = 현재 발효 특보 지역, t2 = 지역 요약 — 가장 정확한 필드 */
   var text = detail.t6 || detail.t2 || '';
   if (!text) {
-    text = [detail.wrnStnm, detail.area, detail.areaFc, detail.wrnMsg, detail.msg, detail.wrnCn, detail.content]
+    /* 기관명(wrnStnm) 제외, 지역 관련 필드만 사용 */
+    text = [detail.area, detail.areaFc, detail.wrnMsg, detail.msg, detail.wrnCn, detail.content]
       .filter(Boolean).join(' ');
   }
   return text;
