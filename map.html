@@ -228,7 +228,7 @@
     return warnList.some(function(w) {
       var title = w.wrnTitle || '';
       if (MARITIME_TITLES.some(function(t) { return title.includes(t); })) return false;
-      var region = [w.wrnStnm, w.area, w.areaFc, w.wrnTitle].filter(Boolean).join(' ');
+      var region = [w.t6, w.t2, w.area, w.areaFc].filter(Boolean).join(' ');
       return keys.some(function(kw) {
         if (Array.isArray(kw)) return kw.every(function(k) { return k && region.includes(k); });
         return kw && region.includes(kw);
@@ -283,7 +283,7 @@
       var matched = warnList.filter(function(w) {
         var title = w.wrnTitle || '';
         if (MARITIME_TITLES.some(function(t) { return title.includes(t); })) return false;
-        var region = [w.wrnStnm, w.area, w.areaFc, w.wrnTitle].filter(Boolean).join(' ');
+        var region = [w.t6, w.t2, w.area, w.areaFc].filter(Boolean).join(' ');
         return keys.some(function(kw) {
           if (Array.isArray(kw)) return kw.every(function(k) { return k && region.includes(k); });
           return kw && region.includes(kw);

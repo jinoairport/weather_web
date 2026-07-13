@@ -328,24 +328,42 @@ function buildMockData(mode) {
 }
 
 /* 전국 14개 공항 기상 격자 좌표 (기상청 동네예보) */
-/* wrnKeys: 기상청 특보 t6 필드 매칭 키워드 배열 (substring 포함 여부로 판단)
-   특보는 세 레벨로 발효될 수 있으므로 모두 포함:
-   ① 세분화 권역 (예: 서울서남권) ② 구/읍/면 단위 (예: 강서구) ③ 시/도 전역 (예: 서울) */
+/* wrnKeys: 기상청 특보 region 텍스트 매칭 키워드
+   설계 원칙 — 공항 행정주소 기준 3단계:
+     ① 구/군 단위 (가장 구체적, 단독 OR AND 배열)
+     ② 시/군 단위
+     ③ 도/광역시 단위 (★필수: "경남 전역" 같은 상급 특보 누락 방지)
+   배열 안에 배열([a,b])은 AND 조건 (a AND b 모두 포함 시 매칭)
+   매칭 우선순위: 구체성(글자수) 높은 것 → 동점이면 낮은 단계 유지 */
 const AIRPORTS = [
+  /* 서울특별시 강서구 오쇠동 */
   { name: '김포',     code: 'GMP', city: '서울', location: '강서구 오쇠동', nx: 58,  ny: 127, dept: '토목조경부', icao: 'RKSS', midFcst: '11B00000', midTa: '11B10101', wrnCity: '서울',  wrnKeys: ['서울서남권', ['강서구','서울'], '서울'] },
-  { name: '제주',     code: 'CJU', city: '제주', location: '제주시 용담2동', nx: 53,  ny: 39,  dept: '토목부',     icao: 'RKPC', midFcst: '11G00000', midTa: '11G00201', wrnCity: '제주',  wrnKeys: ['제주시북부', '제주'] },
+  /* 제주특별자치도 제주시 용담2동 */
+  { name: '제주',     code: 'CJU', city: '제주', location: '제주시 용담2동', nx: 53,  ny: 39,  dept: '토목부',     icao: 'RKPC', midFcst: '11G00000', midTa: '11G00201', wrnCity: '제주',  wrnKeys: ['제주시북부', '제주시', '제주'] },
+  /* 부산광역시 강서구 대저2동 */
   { name: '김해',     code: 'PUS', city: '부산', location: '강서구 대저2동', nx: 96,  ny: 76,  dept: '토목부',     icao: 'RKPK', midFcst: '11H20000', midTa: '11H20201', wrnCity: '부산',  wrnKeys: ['부산서부', ['강서구','부산'], '부산'] },
-  { name: '대구',     code: 'TAE', city: '대구', location: '북구/동구 경계', nx: 91,  ny: 92,  dept: '',           icao: 'RKTN', midFcst: '11H10000', midTa: '11H10201', wrnCity: '대구',  wrnKeys: ['대구중부', ['북구','대구'], ['동구','대구'], '대구'] },
-  { name: '청주',     code: 'CJJ', city: '청주', location: '내수읍 입상리', nx: 70,  ny: 109, dept: '',           icao: 'RKTU', midFcst: '11C10000', midTa: '11C10301', wrnCity: '청주',  wrnKeys: ['청주서부', '청원구', '청주'] },
-  { name: '광주',     code: 'KWJ', city: '광주', location: '광산구 신촌동', nx: 58,  ny: 75,  dept: '',           icao: 'RKJJ', midFcst: '11F20000', midTa: '11F20501', wrnCity: '광주',  wrnKeys: ['광주서부', '광산구', '광주'] },
-  { name: '여수',     code: 'RSU', city: '여수', location: '율촌면',        nx: 73,  ny: 69,  dept: '',           icao: 'RKJY', midFcst: '11F20000', midTa: '11F20602', wrnCity: '여수',  wrnKeys: ['여수'] },
-  { name: '무안',     code: 'MWX', city: '전남', location: '무안군 망운면', nx: 51,  ny: 72,  dept: '',           icao: 'RKJB', midFcst: '11F20000', midTa: '11F20401', wrnCity: '무안',  wrnKeys: ['무안북부', '무안'] },
-  { name: '포항경주', code: 'KPO', city: '포항', location: '동해면 도구리',  nx: 104, ny: 95,  dept: '',           icao: 'RKTH', midFcst: '11H10000', midTa: '11H10101', wrnCity: '포항',  wrnKeys: ['포항', '경주'] },
-  { name: '군산',     code: 'KUV', city: '전북', location: '군산시 옥서면', nx: 55,  ny: 92,  dept: '',           icao: 'RKJK', midFcst: '11F10000', midTa: '11F10201', wrnCity: '군산',  wrnKeys: ['군산'] },
-  { name: '원주',     code: 'WJU', city: '강원', location: '호저면 의관리', nx: 78,  ny: 125, dept: '',           icao: 'RKTL', midFcst: '11D10000', midTa: '11D10201', wrnCity: '원주',  wrnKeys: ['원주'] },
-  { name: '사천',     code: 'HIN', city: '경남', location: '사천시 사천읍', nx: 81,  ny: 72,  dept: '',           icao: 'RKPS', midFcst: '11H20000', midTa: '11H20701', wrnCity: '사천',  wrnKeys: ['사천'] },
-  { name: '양양',     code: 'YNY', city: '강원', location: '양양군 손양면', nx: 90,  ny: 139, dept: '',           icao: 'RKNY', midFcst: '11D20000', midTa: '11D20401', wrnCity: '양양',  wrnKeys: ['양양평지', '양양산지', '양양'] },
-  { name: '울산',     code: 'USN', city: '울산', location: '북구 화봉동',   nx: 103, ny: 86,  dept: '',           icao: 'RKPU', midFcst: '11H20000', midTa: '11H20101', wrnCity: '울산',  wrnKeys: ['울산동부', ['북구','울산'], '울산'] },
+  /* 대구광역시 북구·동구 경계 */
+  { name: '대구',     code: 'TAE', city: '대구', location: '북구/동구 경계', nx: 91,  ny: 92,  dept: '',           icao: 'RKTN', midFcst: '11H10000', midTa: '11H10201', wrnCity: '대구',  wrnKeys: [['북구','대구'], ['동구','대구'], '대구'] },
+  /* 충청북도 청주시 청원구 내수읍 */
+  { name: '청주',     code: 'CJJ', city: '청주', location: '청원구 내수읍', nx: 70,  ny: 109, dept: '',           icao: 'RKTU', midFcst: '11C10000', midTa: '11C10301', wrnCity: '청주',  wrnKeys: ['청원구', '청주', '충북'] },
+  /* 광주광역시 광산구 신촌동 */
+  { name: '광주',     code: 'KWJ', city: '광주', location: '광산구 신촌동', nx: 58,  ny: 75,  dept: '',           icao: 'RKJJ', midFcst: '11F20000', midTa: '11F20501', wrnCity: '광주',  wrnKeys: ['광산구', '광주서부', '광주'] },
+  /* 전라남도 여수시 율촌면 */
+  { name: '여수',     code: 'RSU', city: '여수', location: '율촌면',        nx: 73,  ny: 69,  dept: '',           icao: 'RKJY', midFcst: '11F20000', midTa: '11F20602', wrnCity: '여수',  wrnKeys: ['율촌면', '여수', '전남'] },
+  /* 전라남도 무안군 망운면 */
+  { name: '무안',     code: 'MWX', city: '전남', location: '무안군 망운면', nx: 51,  ny: 72,  dept: '',           icao: 'RKJB', midFcst: '11F20000', midTa: '11F20401', wrnCity: '무안',  wrnKeys: ['망운면', '무안', '전남'] },
+  /* 경상북도 포항시 남구 동해면 (경주시와 경계) */
+  { name: '포항경주', code: 'KPO', city: '포항', location: '남구 동해면',   nx: 104, ny: 95,  dept: '',           icao: 'RKTH', midFcst: '11H10000', midTa: '11H10101', wrnCity: '포항',  wrnKeys: ['동해면', '포항', '경주', '경북'] },
+  /* 전라북도 군산시 옥서면 */
+  { name: '군산',     code: 'KUV', city: '전북', location: '군산시 옥서면', nx: 55,  ny: 92,  dept: '',           icao: 'RKJK', midFcst: '11F10000', midTa: '11F10201', wrnCity: '군산',  wrnKeys: ['옥서면', '군산', '전북'] },
+  /* 강원특별자치도 원주시 호저면 */
+  { name: '원주',     code: 'WJU', city: '강원', location: '호저면 의관리', nx: 78,  ny: 125, dept: '',           icao: 'RKTL', midFcst: '11D10000', midTa: '11D10201', wrnCity: '원주',  wrnKeys: ['호저면', '원주', '강원영서', '강원'] },
+  /* 경상남도 사천시 사천읍 */
+  { name: '사천',     code: 'HIN', city: '경남', location: '사천시 사천읍', nx: 81,  ny: 72,  dept: '',           icao: 'RKPS', midFcst: '11H20000', midTa: '11H20701', wrnCity: '사천',  wrnKeys: ['사천읍', '사천', '경남'] },
+  /* 강원특별자치도 양양군 손양면 (영동) */
+  { name: '양양',     code: 'YNY', city: '강원', location: '양양군 손양면', nx: 90,  ny: 139, dept: '',           icao: 'RKNY', midFcst: '11D20000', midTa: '11D20401', wrnCity: '양양',  wrnKeys: ['손양면', '양양평지', '양양산지', '양양', '강원영동', '강원'] },
+  /* 울산광역시 북구 화봉동 */
+  { name: '울산',     code: 'USN', city: '울산', location: '북구 화봉동',   nx: 103, ny: 86,  dept: '',           icao: 'RKPU', midFcst: '11H20000', midTa: '11H20101', wrnCity: '울산',  wrnKeys: [['북구','울산'], '울산동부', '울산'] },
 ];
 
 /* 전역 데이터 저장소 */
