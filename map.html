@@ -220,11 +220,14 @@
     return '#1b3a6b';
   }
 
-  /* ── 특보 wrnKeys 매칭 (AND 조건 배열 지원) ── */
+  /* ── 특보 wrnKeys 매칭 (AND 조건 배열 지원, 해상특보 제외) ── */
+  const MARITIME_TITLES = ['풍랑', '해일', '지진해일'];
   function aptHasWarning(apt, warnList) {
     if (!warnList || !warnList.length) return false;
     var keys = (apt.wrnKeys && apt.wrnKeys.length) ? apt.wrnKeys : [apt.wrnCity || ''];
     return warnList.some(function(w) {
+      var title = w.wrnTitle || '';
+      if (MARITIME_TITLES.some(function(t) { return title.includes(t); })) return false;
       var region = [w.wrnStnm, w.area, w.areaFc, w.wrnTitle].filter(Boolean).join(' ');
       return keys.some(function(kw) {
         if (Array.isArray(kw)) return kw.every(function(k) { return k && region.includes(k); });
@@ -278,6 +281,8 @@
     if (hasWarn && warnList) {
       var keys = (apt.wrnKeys && apt.wrnKeys.length) ? apt.wrnKeys : [apt.wrnCity || ''];
       var matched = warnList.filter(function(w) {
+        var title = w.wrnTitle || '';
+        if (MARITIME_TITLES.some(function(t) { return title.includes(t); })) return false;
         var region = [w.wrnStnm, w.area, w.areaFc, w.wrnTitle].filter(Boolean).join(' ');
         return keys.some(function(kw) {
           if (Array.isArray(kw)) return kw.every(function(k) { return k && region.includes(k); });

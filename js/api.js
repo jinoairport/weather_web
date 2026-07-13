@@ -177,18 +177,38 @@ function getCurrentWrnKeys() {
   return (apt.wrnKeys && apt.wrnKeys.length) ? apt.wrnKeys : [apt.wrnCity || '부산'];
 }
 
+/* 해상 전용 특보 — 공항 운영과 무관하므로 매칭에서 제외 */
+var MARITIME_WARN_TITLES = ['풍랑', '해일', '지진해일'];
+
 /* 특보/예비특보 공통 필터 — wrnKeys 배열 내 배열(AND 조건) 지원 */
 function filterByCity(arr, keys) {
   var keyArr = Array.isArray(keys) ? keys : [keys];
-  return arr.filter(function(w) {
+  var matched = arr.filter(function(w) {
+    // 해상 전용 특보 제외
+    var title = w.wrnTitle || '';
+    if (MARITIME_WARN_TITLES.some(function(t) { return title.includes(t); })) return false;
+
     var targets = [w.wrnStnm, w.area, w.areaFc, w.wrnTitle].filter(Boolean).join(' ');
     return keyArr.some(function(kw) {
       if (Array.isArray(kw)) {
-        // AND 조건: 배열 안의 키워드 전부 포함해야 매칭
         return kw.every(function(k) { return k && targets.includes(k); });
       }
       return kw && targets.includes(kw);
     });
+  });
+
+  // 같은 유형에서 경보/주의보 중 최고 단계만 유지
+  var best = {};
+  matched.forEach(function(w) {
+    var title = w.wrnTitle || '';
+    var type  = title.replace('경보', '').replace('주의보', '').replace('예비', '').trim();
+    var rank  = title.includes('경보') ? 2 : 1;
+    if (!best[type] || rank > best[type]._rank) {
+      best[type] = Object.assign({}, w, { _rank: rank });
+    }
+  });
+  return Object.values(best).map(function(w) {
+    var r = Object.assign({}, w); delete r._rank; return r;
   });
 }
 

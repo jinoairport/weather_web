@@ -781,10 +781,21 @@ var WRN_PCP_TYPES = { '호우': 1, '대설': 1, '강설': 1, '태풍': 1 };
    pcpMap : 특보현황 칸 (호우·대설·강설·태풍)
    othMap : 특이사항 칸 (폭염·강풍·뇌우·안개·한파·황사·건조 등)
    wrnKeys 배열로 매칭 — 광역시도 이름(충청북, 강원 등)도 포함 */
+/* 공항에 무관한 해상 전용 특보 유형 */
+var MARITIME_WARN_TYPES = { '풍랑': 1, '해일': 1, '지진해일': 1 };
+
+/* 단계 우선순위: 경보 > 주의보 */
+function wrnLevelRank(lv) {
+  return (lv === '경보') ? 2 : (lv === '주의보') ? 1 : 0;
+}
+
 function buildAptWarnMaps(list) {
   var pcpMap = {}, othMap = {};
   AIRPORTS.forEach(function(apt) { pcpMap[apt.code] = []; othMap[apt.code] = []; });
   (list || []).forEach(function(w) {
+    // 해상 전용 특보는 공항 매칭에서 제외
+    if (MARITIME_WARN_TYPES[w.type]) return;
+
     var region = w.region || '';
     AIRPORTS.forEach(function(apt) {
       var keys = apt.wrnKeys && apt.wrnKeys.length ? apt.wrnKeys : [apt.wrnCity || ''];
@@ -794,10 +805,13 @@ function buildAptWarnMaps(list) {
       });
       if (!matched) return;
       var map = WRN_PCP_TYPES[w.type] ? pcpMap : othMap;
-      var dup = map[apt.code].some(function(x) {
-        return x.type === w.type && x.level === w.level;
-      });
-      if (!dup) map[apt.code].push({ type: w.type, level: w.level, start: w.start, end: w.end });
+      // 같은 유형이 이미 있으면 더 높은 단계(경보 > 주의보)만 유지
+      var existIdx = map[apt.code].findIndex(function(x) { return x.type === w.type; });
+      if (existIdx === -1) {
+        map[apt.code].push({ type: w.type, level: w.level, start: w.start, end: w.end });
+      } else if (wrnLevelRank(w.level) > wrnLevelRank(map[apt.code][existIdx].level)) {
+        map[apt.code].splice(existIdx, 1, { type: w.type, level: w.level, start: w.start, end: w.end });
+      }
     });
   });
   return { pcpMap: pcpMap, othMap: othMap };
