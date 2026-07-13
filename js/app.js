@@ -5,6 +5,7 @@
 let currentMode  = 'normal';
 let hourlyStep   = 3;   // 항상 3시간 간격이 기본값
 let modeManual   = false; // 사용자가 직접 모드를 바꾼 경우 자동감지 안함
+let _autoRefreshTimer = null; // 자동갱신 타이머
 
 /* ===================== 초기화 ===================== */
 window.addEventListener('DOMContentLoaded', async () => {
@@ -17,6 +18,9 @@ window.addEventListener('DOMContentLoaded', async () => {
 
 /* ===================== 데이터 로드 ===================== */
 async function refreshData() {
+  // 이전 타이머 초기화 (중복 방지)
+  clearTimeout(_autoRefreshTimer);
+
   document.getElementById('last-update').textContent = '로딩 중...';
   try {
     APP_DATA = await fetchWeatherData(currentMode);
@@ -24,7 +28,7 @@ async function refreshData() {
     const t   = APP_DATA.generatedAt;
     const src = APP_DATA.isReal ? '✓ 기상청' : '⚠ 목업';
 
-    // 초단기실황 정보 상태바 표시 (매 10분 갱신)
+    // 초단기예보 실황 정보 상태바 표시
     let ncstStr = '';
     if (APP_DATA.ncstData) {
       const n = APP_DATA.ncstData;
@@ -46,6 +50,9 @@ async function refreshData() {
   } catch (e) {
     console.error(e);
     document.getElementById('last-update').textContent = '업데이트 실패';
+  } finally {
+    // 10분 후 자동갱신 예약
+    _autoRefreshTimer = setTimeout(refreshData, 10 * 60 * 1000);
   }
 }
 
@@ -205,9 +212,12 @@ function updateNormalSummary(data) {
       const intense = findIntenseSegment(rows, totalPcp);
       let rainStr = `${range} 예상`;
       if (intense) {
-        const fmtMDdow = t => `${t.getDate()}일(${DAYS_KO[t.getDay()]})`;
+        const fmtMDdow = t => `${t.getMonth()+1}/${t.getDate()}(${DAYS_KO[t.getDay()]})`;
         const fmtH2    = t => `${String(t.getHours()).padStart(2, '0')}시`;
-        rainStr += ` [${fmtMDdow(intense.start)} ${fmtH2(intense.start)} ~ ${fmtH2(intense.end)}]`;
+        const sameDay  = intense.start.toDateString() === intense.end.toDateString();
+        rainStr += sameDay
+          ? ` [${fmtMDdow(intense.start)} ${fmtH2(intense.start)}~${fmtH2(intense.end)}]`
+          : ` [${fmtMDdow(intense.start)} ${fmtH2(intense.start)} ~ ${fmtMDdow(intense.end)} ${fmtH2(intense.end)}]`;
       }
       vRain.textContent = rainStr;
     } else if (hasTrace) {
@@ -281,13 +291,16 @@ function updateRainSummary(data) {
   // 날짜 표시 필드
   setText('v-rain-day', `${today.getDate()}일`);
 
-  // 강우 기간: 미래 강수 예상 시간대의 실제 날짜 범위
+  // 강우 기간: 미래 강수 예상 시간대의 실제 날짜 범위 (월 경계 고려)
   const rainyRows = (data.hourlyRows || []).filter(r => r.time > today && r.pcp > 0);
   let rainPeriodStr;
   if (rainyRows.length > 0) {
-    const firstD = rainyRows[0].time.getDate();
-    const lastD  = rainyRows[rainyRows.length - 1].time.getDate();
-    rainPeriodStr = firstD === lastD ? `${firstD}일` : `${firstD}~${lastD}일`;
+    const first = rainyRows[0].time;
+    const last  = rainyRows[rainyRows.length - 1].time;
+    const fmtD  = t => `${t.getMonth()+1}/${t.getDate()}`;
+    rainPeriodStr = first.toDateString() === last.toDateString()
+      ? `${first.getDate()}일`
+      : `${fmtD(first)}~${fmtD(last)}`;
   } else {
     rainPeriodStr = `${today.getDate()}~${tomorrow.getDate()}일`;
   }
@@ -312,8 +325,12 @@ function updateRainSummary(data) {
     if (!intense) {
       vIntense.textContent = '해당없음';
     } else {
-      const fmt = t => `${t.getDate()}일(${DAYS_KO[t.getDay()]}) ${t.getHours()}시`;
-      vIntense.textContent = `${fmt(intense.start)} ~ ${fmt(intense.end)}(${Math.round(intense.total)}mm)`;
+      const fmt     = t => `${t.getMonth()+1}/${t.getDate()}(${DAYS_KO[t.getDay()]}) ${pad2(t.getHours())}시`;
+      const sameDay = intense.start.toDateString() === intense.end.toDateString();
+      const fmtEnd  = sameDay
+        ? `${pad2(intense.end.getHours())}시`
+        : fmt(intense.end);
+      vIntense.textContent = `${fmt(intense.start)} ~ ${fmtEnd}(${Math.round(intense.total)}mm)`;
     }
   }
 }
@@ -383,6 +400,8 @@ function loadSettings() {
   if (el) el.value = key;
   const ds  = document.getElementById('inp-dam');
   if (ds) ds.value = dam;
+  // localStorage 키를 CONFIG에 반영 (서버 설정 부재 시에도 동작)
+  if (key) CONFIG.API_KEY = key;
   CONFIG.SHOW_DAM = (dam !== 'hide');
 }
 
@@ -505,8 +524,10 @@ function initAirportPanel() {
     grid.appendChild(btn);
   });
   const urlApt = new URLSearchParams(location.search).get('apt');
-  const saved = urlApt || localStorage.getItem('airport_code') || 'PUS';
-  setAirport(saved);
+  const saved  = urlApt || localStorage.getItem('airport_code') || 'PUS';
+  // 유효하지 않은 코드면 기본값으로 fallback
+  const validCode = AIRPORTS.find(a => a.code === saved) ? saved : 'PUS';
+  setAirport(validCode);
 }
 
 function setAirport(code) {

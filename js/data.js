@@ -281,7 +281,7 @@ function buildMockData(mode) {
       pty:    isRainyH ? 1 : 0,
       pop:    isRainyH ? 60 : 10,
       pcpRaw,
-      pcp:    isRainyH ? parseFloat(pcpRaw) || 0 : 0,
+      pcp:    isRainyH ? (pcpRaw === '1mm 미만' ? 0.5 : parseFloat(pcpRaw) || 0) : 0,
       vec:    170 + Math.round(Math.sin(h * 0.3) * 30),
       wsd:    1.5 + Math.abs(Math.sin(h * 0.2)) * 2,
       reh:    isRainyH ? 90 : 45,

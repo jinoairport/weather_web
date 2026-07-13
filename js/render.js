@@ -82,9 +82,10 @@ function renderDailyTable(dailyRows) {
     const ds = r.date.toDateString();
     if (ds === todayStr || ds === tomStr || ds === morStr) {
       // 오늘 오전은 "-" (이미 지난 시간)
+      const amIc   = WX.icon(r.amPty, r.amSky);
       const amCell = (ds === todayStr)
         ? '<td>-</td>'
-        : `<td title="${WX.icon(r.amPty, r.amSky).lbl}">${WX.icon(r.amPty, r.amSky).svg}</td>`;
+        : `<td title="${amIc.lbl}">${amIc.svg}</td>`;
       const pmIc = WX.icon(r.pmPty, r.pmSky);
       html += amCell + `<td title="${pmIc.lbl}">${pmIc.svg}</td>`;
     } else {
@@ -308,6 +309,9 @@ function renderHourlyTable(hourlyRows, step, mode) {
 
 /* 온도 그래프 행 (날씨누리 스타일 — 파랑 + 부드러운 베지어 곡선) */
 function buildTempGraphRow(rows, N, colW) {
+  if (!rows || rows.length === 0) {
+    return `<tr class="tmp-graph-row"><td class="rh" style="border-bottom:none;font-size:10px;font-weight:700">기온</td><td colspan="1" style="border-bottom:none"></td></tr>`;
+  }
   const temps = rows.map(r => r.tmp);
   const tMax  = Math.max(...temps) + 2;
   const tMin  = Math.min(...temps) - 2;

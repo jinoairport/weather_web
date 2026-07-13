@@ -562,17 +562,17 @@ async function prefetchMidTerm() {
     if (taHit2 > 0) {
       cache = cache2;
       mt.issuanceDate = prevD;
-      console.log('[중기예보] 이전 발표(' + prevTmFc + ')로 재시도 성공:', taHit2 + '/' + taIds.length + '개 지역');
+      // 재시도 성공
     } else {
       console.warn('[중기예보] 기온 데이터 없음 — data.go.kr 기상청_중기예보 조회서비스 구독 확인 필요');
     }
   } else {
-    console.log('[중기예보] 기온 조회 성공:', taHit + '/' + taIds.length + '개 지역 (tmFc=' + mt.tmFc + ')');
+    // 기온 조회 성공
 
     /* 일부 지역 실패 → 해당 지역만 이전 발표로 개별 재시도 */
     var failedTaIds = taIds.filter(function(id){ return !cache.taCache[id]; });
     if (failedTaIds.length) {
-      console.log('[중기예보] 일부 지역 재시도 (' + prevTmFc + '):', failedTaIds.join(', '));
+      // 일부 지역 개별 재시도
       var retries = await Promise.all(failedTaIds.map(function(id) {
         return kmaFetchMidRaw('getMidTa', id, prevTmFc)
           .then(function(v){ return {id: id, v: v}; })
@@ -581,7 +581,7 @@ async function prefetchMidTerm() {
       retries.forEach(function(r){
         if (r.v) {
           cache.taCache[r.id] = r.v;
-          console.log('[중기예보] 개별 재시도 성공:', r.id);
+          // 개별 재시도 성공
         }
       });
     }
@@ -691,9 +691,8 @@ async function fetchWrnList() {
     var rc   = json?.response?.header?.resultCode;
     if (rc !== '00') { console.warn('[특보] getWthrWrnList resultCode:', rc); return null; }
     var items = json?.response?.body?.items?.item;
-    if (!items) { console.log('[특보] getWthrWrnList: 현재 발효중 특보 없음'); return []; }
+    if (!items) return [];
     var arr = Array.isArray(items) ? items : [items];
-    console.log('[특보] getWthrWrnList 응답 (' + arr.length + '건):', JSON.stringify(arr.slice(0, 3)));
 
     /* 각 항목별로 getWthrWrnMsg 상세 조회하여 지역명 확보 */
     var detailed = await Promise.allSettled(arr.map(async function(w) {
@@ -705,7 +704,7 @@ async function fetchWrnList() {
       try {
         var detail = await fetchWrnMsgDetail(key, w.stnId, w.tmFc, w.tmSeq);
         if (detail) {
-          console.log('[특보] getWthrWrnMsg 상세 (stnId=' + w.stnId + '):', JSON.stringify(detail));
+          // 특보 상세 수신
           region = extractRegionText(detail);
         }
       } catch(e) { /* 지역명 조회 실패 시 빈 region으로 처리 */ }
@@ -732,7 +731,7 @@ async function fetchAllWarnings() {
 
   var list = await fetchWrnList();
   if (list === null) list = [];
-  console.log('[특보] 최종 list (' + list.length + '건):', list.slice(0, 5));
+  // 특보 목록 처리 완료
 
   /* 헤더 레이블용 — type+level 정보만 필요 */
   var msgs = list.map(function(w) { return { wrnTitle: (w.type || '') + (w.level || '') }; });
@@ -742,7 +741,7 @@ async function fetchAllWarnings() {
 
 /* 헤더 레이블용 문자열 빌드 (통보문 제목 기반) */
 function buildWarnLabel(msgs) {
-  if (!msgs || !msgs.length) return '*호우특보';
+  if (!msgs || !msgs.length) return '*특보현황';
   var types = {};
   var WRN_MAP = [
     { keys:['태풍'],              tag:'태풍' },
@@ -886,7 +885,7 @@ function renderOvTable(allData, dates) {
   h += '<th rowspan="2">공항</th>';
   /* warn-label 에 id 부여 → 특보 API 결과로 갱신됨 */
   h += '<th rowspan="2">특보현황<br><span class="ov-hd-sm">(기상청)</span>' +
-       '<br><span class="ov-hd-sm" id="warn-label">*호우특보</span></th>';
+       '<br><span class="ov-hd-sm" id="warn-label">*특보현황</span></th>';
   h += '<th rowspan="2">구분</th>';
 
   dates.forEach(function(d) {
@@ -1123,7 +1122,7 @@ async function loadAll() {
   /* 캐시 유효하면 API 호출 없이 렌더 */
   var cachedAll = _loadOvCache();
   if (cachedAll) {
-    console.log('[OV] 캐시 데이터 사용');
+    // 캐시 데이터 사용
     AIRPORTS.forEach(function(apt) {
       if (chips[apt.code]) chips[apt.code].className = 'ov-chip done';
     });
@@ -1268,8 +1267,17 @@ function ovSaveKey() {
   loadAll();
 }
 
-/* ===================== 초기화 ===================== */
+/* ===================== 초기화 + 자동갱신 ===================== */
+var _ovRefreshTimer = null;
+
+async function loadAllAndSchedule() {
+  await loadAll();
+  clearTimeout(_ovRefreshTimer);
+  // 전체현황은 데이터 변화가 적으므로 30분 자동갱신
+  _ovRefreshTimer = setTimeout(loadAllAndSchedule, 30 * 60 * 1000);
+}
+
 window.addEventListener('DOMContentLoaded', async function() {
   await CONFIG.ready;
-  await loadAll();
+  await loadAllAndSchedule();
 });
