@@ -1,12 +1,12 @@
 /* ===================================================
    기상청 오픈API 연동 모듈
-   단기예보 + 초단기실황 조회
+   단기예보 + 초단기예보 조회
    API 키 없으면 목업 데이터 사용
    =================================================== */
 
 const KMA_BASE = 'https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0';
 
-/* 기상청 API 공통 호출 (5xx 오류 시 2초 후 1회 재시도) */
+/* 기상청 API 공통 호출 (429/5xx 오류 시 재시도) */
 async function kmaFetch(endpoint, params, _retry = true) {
   const url = new URL(`${KMA_BASE}/${endpoint}`);
   const apiKey = CONFIG.API_KEY.includes('%') ? decodeURIComponent(CONFIG.API_KEY) : CONFIG.API_KEY;
@@ -31,7 +31,8 @@ async function kmaFetch(endpoint, params, _retry = true) {
   const json = await res.json();
   const code = json?.response?.header?.resultCode;
   if (code !== '00') throw new Error(`KMA 오류코드: ${code}`);
-  return json.response.body.items.item;
+  // items가 null이거나 없을 때 빈 배열 반환
+  return json?.response?.body?.items?.item ?? [];
 }
 
 /* 단기예보 발표시각 계산 (02,05,08,11,14,17,20,23시)
@@ -40,14 +41,13 @@ function getBaseTime() {
   const now      = new Date();
   const totalMin = now.getHours() * 60 + now.getMinutes();
   const baseHours = [2, 5, 8, 11, 14, 17, 20, 23];
-  const BUF = 10; // 발표 후 10분 대기
+  const BUF = 10;
   let base = 23;
   for (const bh of baseHours) {
     if (totalMin >= bh * 60 + BUF) base = bh;
   }
   const pad = (n) => String(n).padStart(2, '0');
   const d = new Date(now);
-  // 자정~새벽2시: 전날 23시 발표 기준
   if (base === 23 && now.getHours() < 3) d.setDate(d.getDate() - 1);
   const dateStr = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
   const timeStr = `${pad(base)}00`;
@@ -94,7 +94,7 @@ function parseVilageFcst(items) {
       };
     });
 
-  // 날짜별 집계
+  // 날짜별 집계 — 오전/오후 각각 최악 날씨(최대 PTY, 동률이면 최대 SKY) 반영
   const dailyMap = {};
   for (const r of hourlyRows) {
     const key = r.time.toDateString();
@@ -108,61 +108,68 @@ function parseVilageFcst(items) {
     const h  = r.time.getHours();
     dm.tmin = Math.min(dm.tmin, r.tmp);
     dm.tmax = Math.max(dm.tmax, r.tmp);
-    if (h < 12) { dm.amSky = r.sky; dm.amPty = r.pty; dm.amPop = r.pop; }
-    else         { dm.pmSky = r.sky; dm.pmPty = r.pty; dm.pmPop = r.pop; }
+    if (h < 12) {
+      // 오전: 강수형태 더 심한 것 우선, 같으면 하늘상태 더 나쁜 것 우선
+      if (r.pty > dm.amPty || (r.pty === dm.amPty && r.sky > dm.amSky)) {
+        dm.amSky = r.sky; dm.amPty = r.pty;
+      }
+      dm.amPop = Math.max(dm.amPop, r.pop);
+    } else {
+      if (r.pty > dm.pmPty || (r.pty === dm.pmPty && r.sky > dm.pmSky)) {
+        dm.pmSky = r.sky; dm.pmPty = r.pty;
+      }
+      dm.pmPop = Math.max(dm.pmPop, r.pop);
+    }
   }
 
   const dailyRows = Object.values(dailyMap).slice(0, 11);
   return { dailyRows, hourlyRows };
 }
 
-/* 초단기실황 발표시각 계산 — 매 10분 발표 (0,10,20,30,40,50분), 약 10분 후 제공 */
+/* 초단기예보 발표시각 계산 — 매시 30분 발표 */
 function getNcstBaseTime() {
-  const now     = new Date();
-  const pad     = n => String(n).padStart(2, '0');
-  const d       = new Date(now);
-  // 현재 시각에서 10분(버퍼) 뺀 뒤 10분 단위 내림
-  const totalMin = now.getHours() * 60 + now.getMinutes() - 10;
-  if (totalMin < 0) {
-    d.setDate(d.getDate() - 1);
-    const t = 24 * 60 + totalMin;
-    return {
-      base_date: `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`,
-      base_time: `${pad(Math.floor(t / 60))}${pad(Math.floor((t % 60) / 10) * 10)}`,
-    };
-  }
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const d   = new Date(now);
+  if (now.getMinutes() < 30) d.setHours(d.getHours() - 1);
   return {
     base_date: `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`,
-    base_time: `${pad(Math.floor(totalMin / 60))}${pad(Math.floor((totalMin % 60) / 10) * 10)}`,
+    base_time: `${pad(d.getHours())}30`,
   };
 }
 
-/* 초단기실황 조회 — 매시간 발표, 현재 기온·강수량·바람 실측값 */
+/* 초단기예보 조회 — 전국 격자 커버, SKY·T1H 포함 */
 async function fetchUltraNcst() {
   const { base_date, base_time } = getNcstBaseTime();
-  const items = await kmaFetch('getUltraSrtNcst', { base_date, base_time });
-  const map = {};
-  for (const it of (Array.isArray(items) ? items : [items])) map[it.category] = it.obsrValue;
+  const items = await kmaFetch('getUltraSrtFcst', { base_date, base_time });
+  const arr = Array.isArray(items) ? items : [items];
+  const nearestTime = [...new Set(arr.map(i => i.fcstTime))].sort()[0];
+  const raw = {};
+  arr.filter(i => i.fcstTime === nearestTime).forEach(i => {
+    const v = parseFloat(i.fcstValue);
+    if (!isNaN(v) && v !== -999) raw[i.category] = v;
+    else if (isNaN(v))           raw[i.category] = i.fcstValue;
+  });
 
-  const pty    = parseInt(map.PTY || '0');
-  const rn1Raw = map.RN1 || '강수없음';
+  const pty    = raw.PTY || 0;
+  const rn1Raw = raw.RN1 || '강수없음';
   const rn1    = rn1Raw === '강수없음' ? 0
                : rn1Raw === '1mm 미만' ? 0.5
                : parseFloat(rn1Raw) || 0;
 
   return {
-    tmp:  parseFloat(map.T1H || '20'),
+    tmp:  raw.T1H  ?? 20,
     rn1,
     rn1Raw,
-    reh:  parseInt(map.REH || '60'),
-    wsd:  parseFloat(map.WSD || '0'),
-    vec:  parseInt(map.VEC || '180'),
+    reh:  raw.REH  ?? 60,
+    wsd:  raw.WSD  ?? 0,
+    vec:  raw.VEC  ?? 180,
     pty,
     baseTime: base_time,
   };
 }
 
-/* 현재 선택 공항의 특보 매칭 키워드 배열 반환 (wrnKeys → wrnCity 순 fallback) */
+/* 현재 선택 공항의 특보 매칭 키워드 배열 반환 */
 function getCurrentWrnKeys() {
   const code = localStorage.getItem('airport_code') || 'PUS';
   const apt  = (typeof AIRPORTS !== 'undefined') ? AIRPORTS.find(a => a.code === code) : null;
@@ -170,18 +177,70 @@ function getCurrentWrnKeys() {
   return (apt.wrnKeys && apt.wrnKeys.length) ? apt.wrnKeys : [apt.wrnCity || '부산'];
 }
 
-/* 특보/예비특보 공통 필터 (wrnKeys 중 하나라도 포함 여부) */
+/* 해상 전용 특보 — 공항 운영과 무관하므로 매칭에서 제외 */
+var MARITIME_WARN_TITLES = ['풍랑', '해일', '지진해일'];
+
+/* 도명 약어 → 전체명 / 광역시 최상위 매칭 (overview.js _kwInRegion와 동일 로직) */
+var _PROV_ALIAS = { '경남':'경상남도','경북':'경상북도','전남':'전라남도','충남':'충청남도','충북':'충청북도' };
+var _METRO_SET  = { '서울':1,'부산':1,'대구':1,'인천':1,'광주':1,'대전':1,'울산':1,'세종':1 };
+function _kwInRegion(kw, full, top) {
+  if (_PROV_ALIAS[kw]) return top.includes(_PROV_ALIAS[kw]);
+  if (_METRO_SET[kw])  return top.includes(kw);
+  return full.includes(kw);
+}
+
+/* 특보/예비특보 공통 필터 — wrnKeys 배열 내 배열(AND 조건) 지원
+   dedup 기준:
+   ① 더 구체적인 키워드로 매칭된 것 우선 (AND > 긴 단일 > 짧은 단일)
+   ② 구체성 동률이면 낮은 단계 우선 (예비<주의보<경보) — 경남 경보가 부산 주의보를 잘못 덮는 방지 */
 function filterByCity(arr, keys) {
   var keyArr = Array.isArray(keys) ? keys : [keys];
-  return arr.filter(function(w) {
-    var targets = [w.wrnStnm, w.area, w.areaFc, w.wrnTitle];
-    return keyArr.some(function(kw) {
-      return kw && targets.some(function(t) { return t && t.includes(kw); });
-    });
+
+  function calcSpec(targets) {
+    var top = targets.replace(/\([^)]*\)/g, '');
+    return keyArr.reduce(function(max, kw) {
+      var s = 0;
+      if (Array.isArray(kw)) {
+        s = kw.every(function(k) { return k && _kwInRegion(k, targets, top); })
+          ? kw.reduce(function(sum, k) { return sum + k.length; }, 0)
+          : 0;
+      } else {
+        s = (kw && _kwInRegion(kw, targets, top)) ? kw.length : 0;
+      }
+      return Math.max(max, s);
+    }, 0);
+  }
+
+  var matchedWithSpec = [];
+  arr.forEach(function(w) {
+    var title = w.wrnTitle || '';
+    if (MARITIME_WARN_TITLES.some(function(t) { return title.includes(t); })) return;
+    /* t6=현재 특보 지역목록, t2=지역 요약, area/areaFc=지역 필드
+       wrnStnm(발표기관 "부산지방기상청")·wrnTitle은 제외 → '부산' 키워드에 경남 경보가 오매칭되는 근본 원인 차단 */
+    var targets = [w.t6, w.t2, w.area, w.areaFc].filter(Boolean).join(' ');
+    var spec = calcSpec(targets);
+    if (spec > 0) matchedWithSpec.push({ w: w, spec: spec });
+  });
+
+  /* rank: 예비특보=1, 주의보=2, 경보=3 */
+  var best = {};
+  matchedWithSpec.forEach(function(item) {
+    var title = item.w.wrnTitle || '';
+    /* 예비특보 먼저 제거한 뒤 경보/주의보 제거 → '강풍예비특보' → '강풍' 올바르게 추출 */
+    var type  = title.replace('예비특보', '').replace('경보', '').replace('주의보', '').replace('예비', '').replace('특보', '').trim();
+    var rank  = title.includes('예비') ? 1 : title.includes('주의보') ? 2 : title.includes('경보') ? 3 : 0;
+    var ex    = best[type];
+    /* 더 구체적인 매칭이 우선; 동점이면 낮은 단계(주의보, 예비)를 유지 */
+    if (!ex || item.spec > ex._spec || (item.spec === ex._spec && rank < ex._rank)) {
+      best[type] = Object.assign({}, item.w, { _spec: item.spec, _rank: rank });
+    }
+  });
+  return Object.values(best).map(function(w) {
+    var r = Object.assign({}, w); delete r._spec; delete r._rank; return r;
   });
 }
 
-/* 기상청 기상특보 조회 (선택 공항 소재지 기준, 5xx 시 재시도) */
+/* 기상청 기상특보 조회 (429/5xx 시 재시도) */
 async function fetchWeatherWarning(_retry = true) {
   const city = getCurrentWrnKeys();
   const url  = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
@@ -192,8 +251,9 @@ async function fetchWeatherWarning(_retry = true) {
 
   const res = await fetch(url.toString());
   if (!res.ok) {
-    if (_retry && res.status >= 500) {
-      await new Promise(r => setTimeout(r, 2000));
+    if (_retry && (res.status >= 500 || res.status === 429)) {
+      const delay = res.status === 429 ? 5000 : 2000;
+      await new Promise(r => setTimeout(r, delay));
       return fetchWeatherWarning(false);
     }
     return [];
@@ -218,6 +278,7 @@ function _saveCache(data) {
       weatherWarnings: data.weatherWarnings || [],
       hourlyRows: data.hourlyRows.map(r => ({ ...r, time: r.time.toISOString() })),
       dailyRows:  data.dailyRows.map(r =>  ({ ...r, date: r.date.toISOString() })),
+      ncstData:   data.ncstData || null,
       _at: Date.now(),
     }));
   } catch(e) {}
@@ -237,7 +298,8 @@ function _loadCache() {
   } catch(e) { return null; }
 }
 
-let _lastGoodData = _loadCache();
+let _lastGoodData  = _loadCache();
+let _lastGoodStale = false; // ⚠ 표시 중복 방지 플래그
 
 /* 메인 데이터 페치 */
 async function fetchWeatherData(mode) {
@@ -262,14 +324,20 @@ async function fetchWeatherData(mode) {
     const weatherWarnings = warnings.status === 'fulfilled' ? warnings.value : [];
     const ncstData = ncst.status === 'fulfilled' ? ncst.value : null;
 
-    _lastGoodData = { dailyRows, hourlyRows, generatedAt: new Date(), isReal: true, baseTimeDisplay, weatherWarnings, ncstData };
+    _lastGoodData  = { dailyRows, hourlyRows, generatedAt: new Date(), isReal: true, baseTimeDisplay, weatherWarnings, ncstData };
+    _lastGoodStale = false;
     _saveCache(_lastGoodData);
     return _lastGoodData;
   } catch (err) {
     console.warn('[KMA API 오류]', err.message);
     if (_lastGoodData) {
       console.info('[KMA] 일시 오류 — 이전 데이터 유지');
-      return { ..._lastGoodData, baseTimeDisplay: `⚠${_lastGoodData.baseTimeDisplay}` };
+      // ⚠ 중복 방지: 이미 stale 상태이면 baseTimeDisplay에 ⚠ 재추가 안 함
+      const display = _lastGoodStale
+        ? _lastGoodData.baseTimeDisplay
+        : `⚠${_lastGoodData.baseTimeDisplay}`;
+      _lastGoodStale = true;
+      return { ..._lastGoodData, baseTimeDisplay: display };
     }
     console.error('API키 설정 확인: ⚙ 설정 → 기상청 오픈API 서비스키 입력 (data.go.kr)');
     return { ...buildMockData(mode), isReal: false, baseTimeDisplay: '⚠목업', weatherWarnings: [] };

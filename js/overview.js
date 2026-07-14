@@ -6,6 +6,47 @@ const OV_DAYS = 7;
 var OV_DATES  = [];
 var MID_DATA  = null;   /* 중기예보 사전조회 캐시 { fcstCache, taCache, issuanceDate } */
 
+/* ===================== overview localStorage 캐시 (30분 TTL) ===================== */
+var _OV_CACHE_KEY = 'kma_ov_cache';
+var _OV_CACHE_TTL = 30 * 60 * 1000;
+
+function _saveOvCache(allData) {
+  try {
+    localStorage.setItem(_OV_CACHE_KEY, JSON.stringify({
+      allData: allData.map(function(item) {
+        return {
+          aptCode: item.apt.code,
+          current: item.current,
+          days: item.days.map(function(dy) {
+            return {
+              date: dy.date.toISOString(), amWx: dy.amWx, pmWx: dy.pmWx,
+              tmin: dy.tmin, tmax: dy.tmax, pcp: dy.pcp, sno: dy.sno, hasSnow: dy.hasSnow,
+            };
+          }),
+        };
+      }),
+      _at: Date.now(),
+    }));
+  } catch(e) {}
+}
+
+function _loadOvCache() {
+  try {
+    var raw = localStorage.getItem(_OV_CACHE_KEY);
+    if (!raw) return null;
+    var c = JSON.parse(raw);
+    if (Date.now() - c._at > _OV_CACHE_TTL) return null;
+    var restored = c.allData.map(function(item) {
+      var apt = AIRPORTS.find(function(a) { return a.code === item.aptCode; });
+      if (!apt) return null;
+      item.days.forEach(function(dy) { dy.date = new Date(dy.date); });
+      return { apt: apt, current: item.current, days: item.days };
+    }).filter(Boolean);
+    if (restored.length < AIRPORTS.length) return null;
+    return restored;
+  } catch(e) { return null; }
+}
+
 /* ===================== 날씨 코드 → 텍스트 ===================== */
 function wxTxt(pty, sky) {
   if (pty === 4) return '소나기';
@@ -19,7 +60,8 @@ function wxTxt(pty, sky) {
 }
 
 /* ===================== API — 단기예보 (공항별 좌표) ===================== */
-async function kmaFetchApt(nx, ny) {
+async function kmaFetchApt(nx, ny, _retry) {
+  if (_retry === undefined) _retry = true;
   var bt  = getBaseTime();
   var url = new URL(KMA_BASE + '/getVilageFcst');
   var key = CONFIG.API_KEY;
@@ -33,7 +75,14 @@ async function kmaFetchApt(nx, ny) {
   url.searchParams.set('nx', nx);
   url.searchParams.set('ny', ny);
   var res = await fetch(url.toString());
-  if (!res.ok) throw new Error('HTTP ' + res.status);
+  if (!res.ok) {
+    if (_retry && (res.status >= 500 || res.status === 429)) {
+      var delay = res.status === 429 ? 8000 : 2000;
+      await new Promise(function(r){ setTimeout(r, delay); });
+      return kmaFetchApt(nx, ny, false);
+    }
+    throw new Error('HTTP ' + res.status);
+  }
   var json = await res.json();
   if (json?.response?.header?.resultCode !== '00')
     throw new Error('KMA ' + json?.response?.header?.resultCode);
@@ -41,7 +90,8 @@ async function kmaFetchApt(nx, ny) {
 }
 
 /* ===================== API — 초단기실황 (현재기온·강수형태) ===================== */
-async function kmaFetchNcstApt(nx, ny) {
+async function kmaFetchNcstApt(nx, ny, _retry) {
+  if (_retry === undefined) _retry = true;
   var bt  = getNcstBaseTime();
   var url = new URL(KMA_BASE + '/getUltraSrtNcst');
   var key = CONFIG.API_KEY;
@@ -55,7 +105,14 @@ async function kmaFetchNcstApt(nx, ny) {
   url.searchParams.set('nx', nx);
   url.searchParams.set('ny', ny);
   var res = await fetch(url.toString());
-  if (!res.ok) throw new Error('HTTP ' + res.status);
+  if (!res.ok) {
+    if (_retry && (res.status >= 500 || res.status === 429)) {
+      var delay = res.status === 429 ? 8000 : 2000;
+      await new Promise(function(r){ setTimeout(r, delay); });
+      return kmaFetchNcstApt(nx, ny, false);
+    }
+    throw new Error('HTTP ' + res.status);
+  }
   var json = await res.json();
   if (json?.response?.header?.resultCode !== '00')
     throw new Error('NCST ' + json?.response?.header?.resultCode);
@@ -505,17 +562,17 @@ async function prefetchMidTerm() {
     if (taHit2 > 0) {
       cache = cache2;
       mt.issuanceDate = prevD;
-      console.log('[중기예보] 이전 발표(' + prevTmFc + ')로 재시도 성공:', taHit2 + '/' + taIds.length + '개 지역');
+      // 재시도 성공
     } else {
       console.warn('[중기예보] 기온 데이터 없음 — data.go.kr 기상청_중기예보 조회서비스 구독 확인 필요');
     }
   } else {
-    console.log('[중기예보] 기온 조회 성공:', taHit + '/' + taIds.length + '개 지역 (tmFc=' + mt.tmFc + ')');
+    // 기온 조회 성공
 
     /* 일부 지역 실패 → 해당 지역만 이전 발표로 개별 재시도 */
     var failedTaIds = taIds.filter(function(id){ return !cache.taCache[id]; });
     if (failedTaIds.length) {
-      console.log('[중기예보] 일부 지역 재시도 (' + prevTmFc + '):', failedTaIds.join(', '));
+      // 일부 지역 개별 재시도
       var retries = await Promise.all(failedTaIds.map(function(id) {
         return kmaFetchMidRaw('getMidTa', id, prevTmFc)
           .then(function(v){ return {id: id, v: v}; })
@@ -524,7 +581,7 @@ async function prefetchMidTerm() {
       retries.forEach(function(r){
         if (r.v) {
           cache.taCache[r.id] = r.v;
-          console.log('[중기예보] 개별 재시도 성공:', r.id);
+          // 개별 재시도 성공
         }
       });
     }
@@ -578,7 +635,11 @@ function fmtWrnTime(s) {
 /* 통보문 제목에서 특보 타입·레벨 추출 (getWthrWrnMsg 파싱용) */
 function parseWrnTitle(title) {
   var t = title || '';
-  var level = t.includes('경보') ? '경보' : t.includes('주의보') ? '주의보' : '';
+  /* 예비특보를 먼저 체크해야 '경보' 포함 여부 오판을 막음 */
+  var level = t.includes('예비') ? '예비특보'
+            : t.includes('경보') ? '경보'
+            : t.includes('주의보') ? '주의보'
+            : '';
   var type  = '';
   ['태풍','폭설','대설','호우','강풍','풍랑','폭염','한파','건조','황사','뇌우','안개'].forEach(function(k) {
     if (!type && t.includes(k)) type = k;
@@ -586,85 +647,91 @@ function parseWrnTitle(title) {
   return { type: type, level: level };
 }
 
-/* getWthrWrnMsg를 stnId+tmFc 로 호출 → 통보문 원본 아이템 반환 */
-async function fetchWrnMsgDetail(key, stnId, tmFc, tmSeq) {
-  var url = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
-  url.searchParams.set('serviceKey', key);
-  url.searchParams.set('pageNo',    '1');
-  url.searchParams.set('numOfRows', '5');
-  url.searchParams.set('dataType',  'JSON');
-  if (stnId) url.searchParams.set('stnId',  String(stnId));
-  if (tmFc)  url.searchParams.set('tmFc',   String(tmFc));
-  if (tmSeq) url.searchParams.set('tmSeq',  String(tmSeq));
-  var res  = await fetch(url.toString());
-  var json = await res.json();
-  if (json?.response?.header?.resultCode !== '00') return null;
-  var item = json?.response?.body?.items?.item;
-  if (!item) return null;
-  return Array.isArray(item) ? item[0] : item;
+/* t6 필드 파싱 → [{type,level,region}] 배열
+   t6 형식: "o 강풍주의보 : 경기도(하남...) \no 호우주의보 : ..." */
+function parseT6(t6) {
+  var result  = [];
+  var MARITIME = { '풍랑':1,'해일':1,'지진해일':1 };
+  var WRN_TYPES = ['태풍','폭설','대설','호우','강풍','풍랑','폭염','한파','건조','황사','뇌우','안개'];
+  ('\n' + (t6 || '')).split(/\no\s+/).forEach(function(line) {
+    line = line.trim().replace(/\n/g, ' ');
+    var m = line.match(/^([가-힣]+)\s*:\s*(.+)/);
+    if (!m) return;
+    var titlePart = m[1].trim(), region = m[2].trim();
+    var type = '';
+    WRN_TYPES.forEach(function(k) { if (!type && titlePart.includes(k)) type = k; });
+    if (!type || MARITIME[type]) return;
+    var level = titlePart.includes('경보')  ? '경보'
+              : titlePart.includes('주의보') ? '주의보'
+              : titlePart.includes('예비')   ? '예비특보' : '';
+    if (!level) return;
+    result.push({ type: type, level: level, region: region });
+  });
+  return result;
 }
 
-/* 통보문 아이템에서 지역명 텍스트 추출 */
-function extractRegionText(detail) {
-  if (!detail) return '';
-  /* 실제 API 응답 필드: t6 = 현재 발효 특보 지역, t2 = 제목 행 지역 요약 */
-  var text = detail.t6 || detail.t2 || '';
-  if (!text) {
-    text = [detail.wrnStnm, detail.area, detail.areaFc, detail.wrnMsg, detail.msg, detail.wrnCn, detail.content]
-      .filter(Boolean).join(' ');
-  }
-  return text;
-}
-
-/* getWthrWrnList → [{type,level,region,start,end}] 구조화 배열
-   API 응답이 {stnId,title,tmFc,tmSeq} 형식이므로 title에서 type/level 파싱,
-   getWthrWrnMsg(stnId+tmFc)로 지역명 확보 */
+/* 특보 조회:
+   ① getWthrWrnList → 활성 통보문 목록(stnId·tmFc)
+   ② stnId별 getWthrWrnMsg?stnId&tmFc → 최신 메시지의 t6 파싱
+   → 특보 유형별 region이 정확히 분리되어 오매칭 제거 */
 async function fetchWrnList() {
   if (!CONFIG.API_KEY) return null;
+  var key = CONFIG.API_KEY;
+  if (key.includes('%')) key = decodeURIComponent(key);
+
   try {
-    var url = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnList');
-    var key = CONFIG.API_KEY;
-    if (key.includes('%')) key = decodeURIComponent(key);
-    url.searchParams.set('serviceKey', key);
-    url.searchParams.set('pageNo',    '1');
-    url.searchParams.set('numOfRows', '500');
-    url.searchParams.set('dataType',  'JSON');
-    var res  = await fetch(url.toString());
-    var json = await res.json();
-    var rc   = json?.response?.header?.resultCode;
-    if (rc !== '00') { console.warn('[특보] getWthrWrnList resultCode:', rc); return null; }
-    var items = json?.response?.body?.items?.item;
-    if (!items) { console.log('[특보] getWthrWrnList: 현재 발효중 특보 없음'); return []; }
-    var arr = Array.isArray(items) ? items : [items];
-    console.log('[특보] getWthrWrnList 응답 (' + arr.length + '건):', JSON.stringify(arr.slice(0, 3)));
+    /* ① 통보문 목록 */
+    var listUrl = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnList');
+    listUrl.searchParams.set('serviceKey', key);
+    listUrl.searchParams.set('pageNo',     '1');
+    listUrl.searchParams.set('numOfRows',  '100');
+    listUrl.searchParams.set('dataType',   'JSON');
+    var listJson = await fetch(listUrl.toString()).then(function(r){ return r.json(); });
+    if (listJson?.response?.header?.resultCode !== '00') {
+      console.warn('[특보] getWthrWrnList rc:', listJson?.response?.header?.resultCode);
+      return null;
+    }
+    var listItems = listJson?.response?.body?.items?.item;
+    if (!listItems) return [];
+    if (!Array.isArray(listItems)) listItems = [listItems];
 
-    /* 각 항목별로 getWthrWrnMsg 상세 조회하여 지역명 확보 */
-    var detailed = await Promise.allSettled(arr.map(async function(w) {
-      var titleStr = String(w.title || w.wrnTitle || '');
-      var parsed   = parseWrnTitle(titleStr);
-      if (!parsed.type) return null;
+    /* ② stnId별 최신 tmFc 수집 */
+    var stnLatest = {};
+    listItems.forEach(function(w) {
+      var sid = String(w.stnId || ''), tfc = String(w.tmFc || '');
+      if (sid && (!stnLatest[sid] || tfc > stnLatest[sid])) stnLatest[sid] = tfc;
+    });
 
-      var region = '';
+    /* ③ 각 station 병렬 조회 → t6 파싱 */
+    var allWarnings = [];
+    await Promise.all(Object.keys(stnLatest).map(async function(stnId) {
       try {
-        var detail = await fetchWrnMsgDetail(key, w.stnId, w.tmFc, w.tmSeq);
-        if (detail) {
-          console.log('[특보] getWthrWrnMsg 상세 (stnId=' + w.stnId + '):', JSON.stringify(detail));
-          region = extractRegionText(detail);
-        }
-      } catch(e) { /* 지역명 조회 실패 시 빈 region으로 처리 */ }
-
-      return {
-        type:   parsed.type,
-        level:  parsed.level,
-        region: region,
-        start:  fmtWrnTime(w.tmFc || ''),
-        end:    '',
-      };
+        var msgUrl = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
+        msgUrl.searchParams.set('serviceKey', key);
+        msgUrl.searchParams.set('stnId',      stnId);
+        msgUrl.searchParams.set('tmFc',       stnLatest[stnId]);
+        msgUrl.searchParams.set('dataType',   'JSON');
+        var json = await fetch(msgUrl.toString()).then(function(r){ return r.json(); });
+        if (json?.response?.header?.resultCode !== '00') return;
+        var msgs = json?.response?.body?.items?.item;
+        if (!msgs) return;
+        if (!Array.isArray(msgs)) msgs = [msgs];
+        msgs.sort(function(a, b) { return (+(b.tmSeq || 0)) - (+(a.tmSeq || 0)); });
+        var top = msgs[0];
+        var t6  = top?.t6 || '';
+        var tfc = top?.tmFc || stnLatest[stnId];
+        parseT6(t6).forEach(function(w) {
+          allWarnings.push({ type: w.type, level: w.level, region: w.region,
+                             start: fmtWrnTime(String(tfc)), end: '' });
+        });
+      } catch(e) {
+        console.warn('[특보] stnId=' + stnId + ' 오류:', e.message);
+      }
     }));
 
-    return detailed.map(function(r) { return r.value; }).filter(Boolean);
+    return allWarnings;
   } catch(e) {
-    console.warn('[특보] getWthrWrnList 오류:', e.message);
+    console.warn('[특보] fetchWrnList 오류:', e.message);
     return null;
   }
 }
@@ -675,7 +742,7 @@ async function fetchAllWarnings() {
 
   var list = await fetchWrnList();
   if (list === null) list = [];
-  console.log('[특보] 최종 list (' + list.length + '건):', list.slice(0, 5));
+  // 특보 목록 처리 완료
 
   /* 헤더 레이블용 — type+level 정보만 필요 */
   var msgs = list.map(function(w) { return { wrnTitle: (w.type || '') + (w.level || '') }; });
@@ -685,7 +752,7 @@ async function fetchAllWarnings() {
 
 /* 헤더 레이블용 문자열 빌드 (통보문 제목 기반) */
 function buildWarnLabel(msgs) {
-  if (!msgs || !msgs.length) return '*호우특보';
+  if (!msgs || !msgs.length) return '*특보현황';
   var types = {};
   var WRN_MAP = [
     { keys:['태풍'],              tag:'태풍' },
@@ -725,20 +792,66 @@ var WRN_PCP_TYPES = { '호우': 1, '대설': 1, '강설': 1, '태풍': 1 };
    pcpMap : 특보현황 칸 (호우·대설·강설·태풍)
    othMap : 특이사항 칸 (폭염·강풍·뇌우·안개·한파·황사·건조 등)
    wrnKeys 배열로 매칭 — 광역시도 이름(충청북, 강원 등)도 포함 */
+/* 공항에 무관한 해상 전용 특보 유형 */
+var MARITIME_WARN_TYPES = { '풍랑': 1, '해일': 1, '지진해일': 1 };
+
+/* 단계 우선순위: 경보=3 > 주의보=2 > 예비특보=1 */
+function wrnLevelRank(lv) {
+  return (lv === '경보') ? 3 : (lv === '주의보') ? 2 : (lv === '예비특보') ? 1 : 0;
+}
+
+/* 도명 약어 → 전체명 맵 (약어가 전체명의 부분문자열이 아닌 것만 — 경남≠경상남도 등) */
+var _PROV_ALIAS = { '경남':'경상남도','경북':'경상북도','전남':'전라남도','충남':'충청남도','충북':'충청북도' };
+/* 광역시/특별시 이름 — 다른 도의 괄호 목록 안에도 동명이시로 등장할 수 있어 최상위(괄호 밖) 매칭만 허용 */
+var _METRO_SET  = { '서울':1,'부산':1,'대구':1,'인천':1,'광주':1,'대전':1,'울산':1,'세종':1 };
+/* kw가 region에 실제 포함되는지 판별
+   · 도명 약어: 전체명이 괄호 제거(최상위) 텍스트에 있어야 함
+   · 광역시명: 괄호 안 다른 도 하위 지명과 혼동 방지 위해 괄호 제거 텍스트에서 확인
+   · 일반 시/군/구: 전체 텍스트에서 확인 (괄호 안 세부 지명 포함) */
+function _kwInRegion(kw, full, top) {
+  if (_PROV_ALIAS[kw]) return top.includes(_PROV_ALIAS[kw]);
+  if (_METRO_SET[kw])  return top.includes(kw);
+  return full.includes(kw);
+}
+
+/* 공항-region 매칭 구체성 점수: AND 조건 > 긴 단일 키워드 > 짧은 단일 키워드 (0 = 불일치) */
+function aptMatchSpec(apt, region) {
+  var keys = apt.wrnKeys && apt.wrnKeys.length ? apt.wrnKeys : [apt.wrnCity || ''];
+  var top  = region.replace(/\([^)]*\)/g, '');
+  return keys.reduce(function(max, kw) {
+    var s = 0;
+    if (Array.isArray(kw)) {
+      s = kw.every(function(k) { return k && _kwInRegion(k, region, top); })
+        ? kw.reduce(function(sum, k) { return sum + k.length; }, 0)
+        : 0;
+    } else {
+      s = (kw && _kwInRegion(kw, region, top)) ? kw.length : 0;
+    }
+    return Math.max(max, s);
+  }, 0);
+}
+
 function buildAptWarnMaps(list) {
   var pcpMap = {}, othMap = {};
   AIRPORTS.forEach(function(apt) { pcpMap[apt.code] = []; othMap[apt.code] = []; });
   (list || []).forEach(function(w) {
+    if (MARITIME_WARN_TYPES[w.type]) return;
     var region = w.region || '';
     AIRPORTS.forEach(function(apt) {
-      var keys = apt.wrnKeys && apt.wrnKeys.length ? apt.wrnKeys : [apt.wrnCity || ''];
-      var matched = keys.some(function(kw) { return kw && region.includes(kw); });
-      if (!matched) return;
+      var spec = aptMatchSpec(apt, region);
+      if (!spec) return;
       var map = WRN_PCP_TYPES[w.type] ? pcpMap : othMap;
-      var dup = map[apt.code].some(function(x) {
-        return x.type === w.type && x.level === w.level;
-      });
-      if (!dup) map[apt.code].push({ type: w.type, level: w.level, start: w.start, end: w.end });
+      var existIdx = map[apt.code].findIndex(function(x) { return x.type === w.type; });
+      var entry = { type: w.type, level: w.level, start: w.start, end: w.end, _spec: spec };
+      if (existIdx === -1) {
+        map[apt.code].push(entry);
+      } else {
+        var cur = map[apt.code][existIdx];
+        /* 더 구체적인 매칭이 우선; 동점이면 낮은 단계(예비<주의보<경보) 유지 — 광역 경보가 지역 주의보를 덮는 방지 */
+        if (spec > (cur._spec || 0) || (spec === (cur._spec || 0) && wrnLevelRank(w.level) < wrnLevelRank(cur.level))) {
+          map[apt.code].splice(existIdx, 1, entry);
+        }
+      }
     });
   });
   return { pcpMap: pcpMap, othMap: othMap };
@@ -761,8 +874,9 @@ function renderWarnCell(warns) {
 function styleWarnCell(cell, warns) {
   var hasAlert  = warns.some(function(w){ return w.level === '경보'; });
   var hasNotice = warns.some(function(w){ return w.level === '주의보'; });
-  cell.style.backgroundColor = hasAlert ? '#ffd6d6' : hasNotice ? '#fffbe6' : '';
-  cell.style.color            = hasAlert ? '#c00'    : hasNotice ? '#a06000' : '';
+  var hasPre    = warns.some(function(w){ return w.level === '예비특보'; });
+  cell.style.backgroundColor = hasAlert ? '#ffd6d6' : hasNotice ? '#fffbe6' : hasPre ? '#f0f4ff' : '';
+  cell.style.color            = hasAlert ? '#c00'    : hasNotice ? '#a06000' : hasPre ? '#3a5ca0' : '';
   cell.style.fontWeight       = hasAlert ? 'bold'    : '';
 }
 
@@ -826,7 +940,7 @@ function renderOvTable(allData, dates) {
   h += '<th rowspan="2">공항</th>';
   /* warn-label 에 id 부여 → 특보 API 결과로 갱신됨 */
   h += '<th rowspan="2">특보현황<br><span class="ov-hd-sm">(기상청)</span>' +
-       '<br><span class="ov-hd-sm" id="warn-label">*호우특보</span></th>';
+       '<br><span class="ov-hd-sm" id="warn-label">*특보현황</span></th>';
   h += '<th rowspan="2">구분</th>';
 
   dates.forEach(function(d) {
@@ -1060,6 +1174,23 @@ async function loadAll() {
     });
   }
 
+  /* 캐시 유효하면 API 호출 없이 렌더 */
+  var cachedAll = _loadOvCache();
+  if (cachedAll) {
+    // 캐시 데이터 사용
+    AIRPORTS.forEach(function(apt) {
+      if (chips[apt.code]) chips[apt.code].className = 'ov-chip done';
+    });
+    renderOvTable(cachedAll, dates);
+    fetchAllWarnings().then(function(result) {
+      updateWarnLabel(result.msgs);
+      var maps = buildAptWarnMaps(result.list);
+      applyWarnCells(maps.pcpMap, maps.othMap);
+    });
+    loadRadarImage();
+    return;
+  }
+
   /* 중기예보 사전조회 (D+3~D+6 토/일 데이터) */
   MID_DATA = null;
   if (CONFIG.API_KEY) {
@@ -1089,6 +1220,7 @@ async function loadAll() {
       await new Promise(function(res){ setTimeout(res, 500); });
   }
 
+  _saveOvCache(allData);
   renderOvTable(allData, dates);
 
   /* 특보 API → 헤더 레이블 + 공항별 특보현황 칸 갱신 (비동기, 테이블 렌더 후) */
@@ -1190,9 +1322,17 @@ function ovSaveKey() {
   loadAll();
 }
 
-/* ===================== 초기화 ===================== */
+/* ===================== 초기화 + 자동갱신 ===================== */
+var _ovRefreshTimer = null;
+
+async function loadAllAndSchedule() {
+  await loadAll();
+  clearTimeout(_ovRefreshTimer);
+  // 전체현황은 데이터 변화가 적으므로 30분 자동갱신
+  _ovRefreshTimer = setTimeout(loadAllAndSchedule, 30 * 60 * 1000);
+}
+
 window.addEventListener('DOMContentLoaded', async function() {
   await CONFIG.ready;
-  await loadAll();
-  setInterval(loadAll, 10 * 60 * 1000);
+  await loadAllAndSchedule();
 });

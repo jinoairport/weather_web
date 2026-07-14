@@ -5,6 +5,7 @@
 let currentMode  = 'normal';
 let hourlyStep   = 3;   // 항상 3시간 간격이 기본값
 let modeManual   = false; // 사용자가 직접 모드를 바꾼 경우 자동감지 안함
+let _autoRefreshTimer = null; // 자동갱신 타이머
 
 /* ===================== 초기화 ===================== */
 window.addEventListener('DOMContentLoaded', async () => {
@@ -13,12 +14,13 @@ window.addEventListener('DOMContentLoaded', async () => {
   updateDocDate();
   initAirportPanel();   // setAirport() → refreshData() 호출 포함
 
-  // 10분마다 자동 새로고침
-  setInterval(refreshData, 10 * 60 * 1000);
 });
 
 /* ===================== 데이터 로드 ===================== */
 async function refreshData() {
+  // 이전 타이머 초기화 (중복 방지)
+  clearTimeout(_autoRefreshTimer);
+
   document.getElementById('last-update').textContent = '로딩 중...';
   try {
     APP_DATA = await fetchWeatherData(currentMode);
@@ -26,7 +28,7 @@ async function refreshData() {
     const t   = APP_DATA.generatedAt;
     const src = APP_DATA.isReal ? '✓ 기상청' : '⚠ 목업';
 
-    // 초단기실황 정보 상태바 표시 (매 10분 갱신)
+    // 초단기예보 실황 정보 상태바 표시
     let ncstStr = '';
     if (APP_DATA.ncstData) {
       const n = APP_DATA.ncstData;
@@ -48,6 +50,9 @@ async function refreshData() {
   } catch (e) {
     console.error(e);
     document.getElementById('last-update').textContent = '업데이트 실패';
+  } finally {
+    // 10분 후 자동갱신 예약
+    _autoRefreshTimer = setTimeout(refreshData, 10 * 60 * 1000);
   }
 }
 
@@ -134,8 +139,8 @@ function updateNormalSummary(data) {
     const fShort = (d) => `${d.getMonth()+1}. ${d.getDate()}.`;
     let prefix, from, to;
     if (dow === 5) {
-      // 금요일: 이번주 주말 예보 (내일 토~일)
-      prefix = '이번주 주말'; from = sat; to = sun;
+      // 금요일: 오늘~일요일 (오늘 비도 포함)
+      prefix = '금주'; from = today; to = sun;
     } else if (dow === 6) {
       // 토요일: 금주 주말 (오늘~내일 일요일)
       prefix = '금주 주말'; from = today;
@@ -164,8 +169,8 @@ function updateNormalSummary(data) {
   const todayStart = new Date(today); todayStart.setHours(0, 0, 0, 0);
   let periodFrom, periodTo;
   if (dow === 5) {
-    // 금요일: 토~일
-    periodFrom = sat; periodTo = sun;
+    // 금요일: 오늘~일요일 (오늘 비도 반영)
+    periodFrom = todayStart; periodTo = sun;
   } else if (dow === 6) {
     // 토요일: 오늘~내일 일요일
     periodFrom = todayStart;
@@ -207,9 +212,12 @@ function updateNormalSummary(data) {
       const intense = findIntenseSegment(rows, totalPcp);
       let rainStr = `${range} 예상`;
       if (intense) {
-        const fmtMDdow = t => `${t.getDate()}일(${DAYS_KO[t.getDay()]})`;
+        const fmtMDdow = t => `${t.getMonth()+1}/${t.getDate()}(${DAYS_KO[t.getDay()]})`;
         const fmtH2    = t => `${String(t.getHours()).padStart(2, '0')}시`;
-        rainStr += ` [${fmtMDdow(intense.start)} ${fmtH2(intense.start)} ~ ${fmtH2(intense.end)}]`;
+        const sameDay  = intense.start.toDateString() === intense.end.toDateString();
+        rainStr += sameDay
+          ? ` [${fmtMDdow(intense.start)} ${fmtH2(intense.start)}~${fmtH2(intense.end)}]`
+          : ` [${fmtMDdow(intense.start)} ${fmtH2(intense.start)} ~ ${fmtMDdow(intense.end)} ${fmtH2(intense.end)}]`;
       }
       vRain.textContent = rainStr;
     } else if (hasTrace) {
@@ -223,14 +231,13 @@ function updateNormalSummary(data) {
 /* ===================== 예상강수량 범위 표현 ===================== */
 function pcpRange(mm) {
   if (mm <= 0) return '없음';
-  if (mm < 20) return `${Math.round(mm)}mm`;   // 20mm 미만: 정확한 수치
+  if (mm < 20) return `${Math.round(mm)}mm`;
   if (mm < 100) {
-    const center = Math.round(mm / 10) * 10;
-    return `${Math.max(0, center - 10)}~${center + 10}mm`;
+    const lo = Math.floor(mm / 10) * 10;
+    return `${lo}~${lo + 10}mm`;
   } else {
-    const lo = Math.floor(mm / 10) * 10 - 10;
-    const hi = Math.ceil(mm  / 10) * 10 + 10;
-    return `${lo}~${hi}mm`;
+    const lo = Math.floor(mm / 50) * 50;
+    return `${lo}~${lo + 50}mm`;
   }
 }
 
@@ -283,13 +290,16 @@ function updateRainSummary(data) {
   // 날짜 표시 필드
   setText('v-rain-day', `${today.getDate()}일`);
 
-  // 강우 기간: 미래 강수 예상 시간대의 실제 날짜 범위
+  // 강우 기간: 미래 강수 예상 시간대의 실제 날짜 범위 (월 경계 고려)
   const rainyRows = (data.hourlyRows || []).filter(r => r.time > today && r.pcp > 0);
   let rainPeriodStr;
   if (rainyRows.length > 0) {
-    const firstD = rainyRows[0].time.getDate();
-    const lastD  = rainyRows[rainyRows.length - 1].time.getDate();
-    rainPeriodStr = firstD === lastD ? `${firstD}일` : `${firstD}~${lastD}일`;
+    const first = rainyRows[0].time;
+    const last  = rainyRows[rainyRows.length - 1].time;
+    const fmtD  = t => `${t.getMonth()+1}/${t.getDate()}`;
+    rainPeriodStr = first.toDateString() === last.toDateString()
+      ? `${first.getDate()}일`
+      : `${fmtD(first)}~${fmtD(last)}`;
   } else {
     rainPeriodStr = `${today.getDate()}~${tomorrow.getDate()}일`;
   }
@@ -314,8 +324,12 @@ function updateRainSummary(data) {
     if (!intense) {
       vIntense.textContent = '해당없음';
     } else {
-      const fmt = t => `${t.getDate()}일(${DAYS_KO[t.getDay()]}) ${t.getHours()}시`;
-      vIntense.textContent = `${fmt(intense.start)} ~ ${fmt(intense.end)}(${Math.round(intense.total)}mm)`;
+      const fmt     = t => `${t.getMonth()+1}/${t.getDate()}(${DAYS_KO[t.getDay()]}) ${pad2(t.getHours())}시`;
+      const sameDay = intense.start.toDateString() === intense.end.toDateString();
+      const fmtEnd  = sameDay
+        ? `${pad2(intense.end.getHours())}시`
+        : fmt(intense.end);
+      vIntense.textContent = `${fmt(intense.start)} ~ ${fmtEnd}(${Math.round(intense.total)}mm)`;
     }
   }
 }
@@ -379,12 +393,17 @@ function saveSettings() {
 }
 
 function loadSettings() {
-  const key = localStorage.getItem('kma_api_key') || '';
+  // localStorage 우선, 없으면 apikey.js의 기본 키(CONFIG.API_KEY)로 폴백
+  const key = localStorage.getItem('kma_api_key') || CONFIG.API_KEY || '';
   const dam = localStorage.getItem('show_dam') || 'show';
+  // localStorage에 키가 없으면 기본 키를 저장해 두어 다음에도 유지
+  if (key && !localStorage.getItem('kma_api_key')) localStorage.setItem('kma_api_key', key);
   const el  = document.getElementById('inp-apikey');
   if (el) el.value = key;
   const ds  = document.getElementById('inp-dam');
   if (ds) ds.value = dam;
+  // localStorage 키를 CONFIG에 반영 (서버 설정 부재 시에도 동작)
+  if (key) CONFIG.API_KEY = key;
   CONFIG.SHOW_DAM = (dam !== 'hide');
 }
 
@@ -506,8 +525,11 @@ function initAirportPanel() {
     btn.addEventListener('click', () => setAirport(apt.code));
     grid.appendChild(btn);
   });
-  const saved = localStorage.getItem('airport_code') || 'PUS';
-  setAirport(saved);
+  const urlApt = new URLSearchParams(location.search).get('apt');
+  const saved  = urlApt || localStorage.getItem('airport_code') || 'PUS';
+  // 유효하지 않은 코드면 기본값으로 fallback
+  const validCode = AIRPORTS.find(a => a.code === saved) ? saved : 'PUS';
+  setAirport(validCode);
 }
 
 function setAirport(code) {
@@ -542,6 +564,29 @@ function toggleAirportPanel() {
   if (!panel) return;
   const isOpen = panel.style.display !== 'none';
   panel.style.display = isOpen ? 'none' : '';
+}
+
+/* ===================== 비밀 위치 ===================== */
+function setSecretLocation(location, label, nx, ny, midFcst, midTa) {
+  CONFIG.NX = nx;
+  CONFIG.NY = ny;
+  CONFIG.MID_FCST = midFcst;
+  CONFIG.MID_TA   = midTa;
+
+  document.querySelectorAll('.apt-btn').forEach(b => b.classList.remove('active'));
+
+  setText('doc-dept',      label);
+  setText('doc-title-el',  label + ' 기상정보');
+  setText('doc-foot-dept', label);
+  setText('ctrl-location', location);
+  const ctEl = document.getElementById('ctrl-title-el');
+  if (ctEl) ctEl.textContent = label + ' 기상정보';
+
+  modeManual = false;
+  refreshData();
+
+  const panel = document.getElementById('airport-panel');
+  if (panel) panel.style.display = 'none';
 }
 
 /* ===================== 유틸 ===================== */
