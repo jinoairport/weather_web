@@ -192,9 +192,13 @@ const WX = {
   // API PCP 문자열 → 화면 표시용 강수량
   pcpDisplay(pcpRaw) {
     if (!pcpRaw || pcpRaw === '강수없음') return '-';
-    if (pcpRaw === '1mm 미만')            return '-1';
-    // "1.0~29.9mm" → "1~30", "50mm 이상" → "50↑"
-    return pcpRaw.replace('mm 이상', '↑').replace(/\.0/g, '').replace('mm', '').replace('~', '~');
+    if (pcpRaw === '1mm 미만')            return '~1';
+    // 소수점 값 정수화: 1mm 미만은 ~1, 1mm 이상은 반올림
+    // "0.1mm"→"~1", "1.3mm"→"1", "5.0~9.9mm"→"5~10", "50mm 이상"→"50↑"
+    return pcpRaw
+      .replace(/(\d+\.\d+)/g, m => { const v = parseFloat(m); return v < 1 ? '~1' : Math.round(v); })
+      .replace('mm 이상', '↑')
+      .replace('mm', '');
   },
 
   // 풍향(degree) → 화살표 회전각 (바람이 가는 방향)
