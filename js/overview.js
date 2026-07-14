@@ -137,7 +137,7 @@ function parseNcstApt(items) {
 
 /* 풍향 각도 → 한국어 8방위 */
 function windDirKo(deg) {
-  if (deg === null || deg === undefined) return '가변';
+  if (deg === null || deg === undefined) return '풍향가변';
   var dirs = ['북','북동','동','남동','남','남서','서','북서'];
   return dirs[Math.round(deg / 45) % 8];
 }
@@ -986,7 +986,7 @@ function renderOvTable(allData, dates) {
         /* 현재 날씨 (METAR PTY + SKY) + 풍향풍속 */
         var windLine = '';
         if (cur.windSpd !== null) {
-          var wDir = cur.windDir !== null ? windDirKo(cur.windDir) : '가변';
+          var wDir = cur.windDir !== null ? windDirKo(cur.windDir) : '풍향가변';
           var wSpd = knotsToMs(cur.windSpd) + 'm/s';
           if (cur.windGust) wSpd += '(돌풍' + knotsToMs(cur.windGust) + ')';
           windLine = '<br><small class="ov-wind">' + wDir + ' ' + wSpd + '</small>';
