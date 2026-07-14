@@ -647,86 +647,42 @@ function parseWrnTitle(title) {
   return { type: type, level: level };
 }
 
-/* getWthrWrnMsg를 stnId+tmFc 로 호출 → 통보문 원본 아이템 반환 */
-async function fetchWrnMsgDetail(key, stnId, tmFc, tmSeq) {
-  var url = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
-  url.searchParams.set('serviceKey', key);
-  url.searchParams.set('pageNo',    '1');
-  url.searchParams.set('numOfRows', '5');
-  url.searchParams.set('dataType',  'JSON');
-  if (stnId) url.searchParams.set('stnId',  String(stnId));
-  if (tmFc)  url.searchParams.set('tmFc',   String(tmFc));
-  if (tmSeq) url.searchParams.set('tmSeq',  String(tmSeq));
-  var res  = await fetch(url.toString());
-  var json = await res.json();
-  if (json?.response?.header?.resultCode !== '00') return null;
-  var item = json?.response?.body?.items?.item;
-  if (!item) return null;
-  return Array.isArray(item) ? item[0] : item;
-}
-
-/* 통보문 아이템에서 지역명 텍스트 추출
-   wrnStnm(발표기관명)은 제외 — '부산지방기상청'이 '부산' 키워드에 오매칭 방지 */
-function extractRegionText(detail) {
-  if (!detail) return '';
-  /* t6 = 현재 발효 특보 지역, t2 = 지역 요약 — 가장 정확한 필드 */
-  var text = detail.t6 || detail.t2 || '';
-  if (!text) {
-    /* 기관명(wrnStnm) 제외, 지역 관련 필드만 사용 */
-    text = [detail.area, detail.areaFc, detail.wrnMsg, detail.msg, detail.wrnCn, detail.content]
-      .filter(Boolean).join(' ');
-  }
-  return text;
-}
-
-/* getWthrWrnList → [{type,level,region,start,end}] 구조화 배열
-   API 응답이 {stnId,title,tmFc,tmSeq} 형식이므로 title에서 type/level 파싱,
-   getWthrWrnMsg(stnId+tmFc)로 지역명 확보 */
+/* getWthrWrnMsg 전국 조회 → [{type,level,region,start,end}] 구조화 배열
+   api.js filterByCity와 동일 방식: t6/t2/area/areaFc만 사용, wrnStnm·wrnMsg 제외 */
 async function fetchWrnList() {
   if (!CONFIG.API_KEY) return null;
   try {
-    var url = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnList');
     var key = CONFIG.API_KEY;
     if (key.includes('%')) key = decodeURIComponent(key);
+    var url = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
     url.searchParams.set('serviceKey', key);
     url.searchParams.set('pageNo',    '1');
-    url.searchParams.set('numOfRows', '500');
+    url.searchParams.set('numOfRows', '100');
     url.searchParams.set('dataType',  'JSON');
     var res  = await fetch(url.toString());
     var json = await res.json();
     var rc   = json?.response?.header?.resultCode;
-    if (rc !== '00') { console.warn('[특보] getWthrWrnList resultCode:', rc); return null; }
+    if (rc !== '00') { console.warn('[특보] getWthrWrnMsg resultCode:', rc); return null; }
     var items = json?.response?.body?.items?.item;
     if (!items) return [];
     var arr = Array.isArray(items) ? items : [items];
 
-    /* 각 항목별로 getWthrWrnMsg 상세 조회하여 지역명 확보 */
-    var detailed = await Promise.allSettled(arr.map(async function(w) {
-      var titleStr = String(w.title || w.wrnTitle || '');
+    return arr.map(function(w) {
+      var titleStr = String(w.wrnTitle || '');
       var parsed   = parseWrnTitle(titleStr);
       if (!parsed.type) return null;
-
-      var region = '';
-      try {
-        var detail = await fetchWrnMsgDetail(key, w.stnId, w.tmFc, w.tmSeq);
-        if (detail) {
-          // 특보 상세 수신
-          region = extractRegionText(detail);
-        }
-      } catch(e) { /* 지역명 조회 실패 시 빈 region으로 처리 */ }
-
+      /* wrnStnm(발표기관명)·wrnMsg(통보문 본문) 제외 — 발표기관명이 키워드에 오매칭되는 근본 차단 */
+      var region = [w.t6, w.t2, w.area, w.areaFc].filter(Boolean).join(' ');
       return {
         type:   parsed.type,
         level:  parsed.level,
         region: region,
-        start:  fmtWrnTime(w.tmFc || ''),
+        start:  fmtWrnTime(String(w.tmFc || '')),
         end:    '',
       };
-    }));
-
-    return detailed.map(function(r) { return r.value; }).filter(Boolean);
+    }).filter(Boolean);
   } catch(e) {
-    console.warn('[특보] getWthrWrnList 오류:', e.message);
+    console.warn('[특보] getWthrWrnMsg 오류:', e.message);
     return null;
   }
 }
