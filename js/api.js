@@ -197,7 +197,7 @@ function filterByCity(arr, keys) {
   var keyArr = Array.isArray(keys) ? keys : [keys];
 
   function calcSpec(targets) {
-    var top = targets.replace(/\([^)]*\)/g, '');
+    var top = targets.replace(/\([^()]*\)/g, '').replace(/[()]/g, '');
     return keyArr.reduce(function(max, kw) {
       var s = 0;
       if (Array.isArray(kw)) {
@@ -246,7 +246,7 @@ async function fetchWeatherWarning(_retry = true) {
   const url  = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
   url.searchParams.set('serviceKey', CONFIG.API_KEY);
   url.searchParams.set('pageNo',    '1');
-  url.searchParams.set('numOfRows', '50');
+  url.searchParams.set('numOfRows', '100');
   url.searchParams.set('dataType',  'JSON');
 
   const res = await fetch(url.toString());

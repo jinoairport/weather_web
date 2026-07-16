@@ -42,13 +42,12 @@ function renderDailyTable(dailyRows) {
     const label  = `${dayNum}일(${dayKo})`;
 
     let cls = 'dtbl-date';
-    let style = '';
     if (ds === todayStr) {
-      cls += ' today'; style = 'colspan="2"';
+      cls += ' today';
     } else if (ds === tomStr) {
-      cls += ' tomorrow'; style = 'colspan="2"';
+      cls += ' tomorrow';
     } else if (ds === morStr) {
-      cls += ' morae'; style = 'colspan="2"';
+      cls += ' morae';
     } else {
       if (dow === 6) cls += ' sat';
       else if (dow === 0) cls += ' sun';
