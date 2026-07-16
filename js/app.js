@@ -245,8 +245,13 @@ function pcpRange(mm) {
 function findIntenseSegment(futureRows, expectedTotal) {
   // 총 예상강수량 50mm 초과: 시간당 5mm 미만 구간은 집중으로 보지 않음
   // (단, 양쪽에 5mm 이상 구간이 있고 공백이 6시간 미만이면 포함)
-  const threshold = expectedTotal > 50 ? 5 : 1;
-  const maxGapH   = expectedTotal > 50 ? 6 : 3;
+  // 5mm 이상 해당 시간이 2시간 미만이면 4mm까지 완화 (집중 의미 확보)
+  let threshold = expectedTotal > 50 ? 5 : 1;
+  const maxGapH = expectedTotal > 50 ? 6 : 3;
+
+  if (threshold === 5 && futureRows.filter(r => r.pcp >= 5).length < 2) {
+    threshold = 4;
+  }
 
   const heavy = futureRows.filter(r => r.pcp >= threshold);
   if (heavy.length === 0) return null;
@@ -345,7 +350,7 @@ function addMeasure() {
   const list = document.getElementById('measures-list');
   const div  = document.createElement('div');
   div.className = 'it-row';
-  div.innerHTML = `<span class="it-bull">ㅇ</span><span class="it-val ce" contenteditable="true">내용을 입력하세요</span>`;
+  div.innerHTML = `<span class="it-bull">ㅇ</span><span class="it-val ce" contenteditable="true">내용을 입력하세요</span><button class="no-print add-row-btn rm" onclick="this.parentElement.remove()">×</button>`;
   list.appendChild(div);
   div.querySelector('[contenteditable]').focus();
 }
@@ -393,8 +398,11 @@ function saveSettings() {
 }
 
 function loadSettings() {
-  const key = localStorage.getItem('kma_api_key') || '';
+  // localStorage 우선, 없으면 apikey.js의 기본 키(CONFIG.API_KEY)로 폴백
+  const key = localStorage.getItem('kma_api_key') || CONFIG.API_KEY || '';
   const dam = localStorage.getItem('show_dam') || 'show';
+  // localStorage에 키가 없으면 기본 키를 저장해 두어 다음에도 유지
+  if (key && !localStorage.getItem('kma_api_key')) localStorage.setItem('kma_api_key', key);
   const el  = document.getElementById('inp-apikey');
   if (el) el.value = key;
   const ds  = document.getElementById('inp-dam');

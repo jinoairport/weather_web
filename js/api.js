@@ -180,6 +180,15 @@ function getCurrentWrnKeys() {
 /* 해상 전용 특보 — 공항 운영과 무관하므로 매칭에서 제외 */
 var MARITIME_WARN_TITLES = ['풍랑', '해일', '지진해일'];
 
+/* 도명 약어 → 전체명 / 광역시 최상위 매칭 (overview.js _kwInRegion와 동일 로직) */
+var _PROV_ALIAS = { '경남':'경상남도','경북':'경상북도','전남':'전라남도','충남':'충청남도','충북':'충청북도' };
+var _METRO_SET  = { '서울':1,'부산':1,'대구':1,'인천':1,'광주':1,'대전':1,'울산':1,'세종':1 };
+function _kwInRegion(kw, full, top) {
+  if (_PROV_ALIAS[kw]) return top.includes(_PROV_ALIAS[kw]);
+  if (_METRO_SET[kw])  return top.includes(kw);
+  return full.includes(kw);
+}
+
 /* 특보/예비특보 공통 필터 — wrnKeys 배열 내 배열(AND 조건) 지원
    dedup 기준:
    ① 더 구체적인 키워드로 매칭된 것 우선 (AND > 긴 단일 > 짧은 단일)
@@ -188,14 +197,15 @@ function filterByCity(arr, keys) {
   var keyArr = Array.isArray(keys) ? keys : [keys];
 
   function calcSpec(targets) {
+    var top = targets.replace(/\([^()]*\)/g, '').replace(/[()]/g, '');
     return keyArr.reduce(function(max, kw) {
       var s = 0;
       if (Array.isArray(kw)) {
-        s = kw.every(function(k) { return k && targets.includes(k); })
+        s = kw.every(function(k) { return k && _kwInRegion(k, targets, top); })
           ? kw.reduce(function(sum, k) { return sum + k.length; }, 0)
           : 0;
       } else {
-        s = (kw && targets.includes(kw)) ? kw.length : 0;
+        s = (kw && _kwInRegion(kw, targets, top)) ? kw.length : 0;
       }
       return Math.max(max, s);
     }, 0);
@@ -236,7 +246,7 @@ async function fetchWeatherWarning(_retry = true) {
   const url  = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
   url.searchParams.set('serviceKey', CONFIG.API_KEY);
   url.searchParams.set('pageNo',    '1');
-  url.searchParams.set('numOfRows', '50');
+  url.searchParams.set('numOfRows', '100');
   url.searchParams.set('dataType',  'JSON');
 
   const res = await fetch(url.toString());

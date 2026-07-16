@@ -86,7 +86,7 @@ async function kmaFetchApt(nx, ny, _retry) {
   var json = await res.json();
   if (json?.response?.header?.resultCode !== '00')
     throw new Error('KMA ' + json?.response?.header?.resultCode);
-  return json.response.body.items.item;
+  return json.response.body.items?.item ?? [];
 }
 
 /* ===================== API — 초단기실황 (현재기온·강수형태) ===================== */
@@ -116,7 +116,7 @@ async function kmaFetchNcstApt(nx, ny, _retry) {
   var json = await res.json();
   if (json?.response?.header?.resultCode !== '00')
     throw new Error('NCST ' + json?.response?.header?.resultCode);
-  return json.response.body.items.item;
+  return json.response.body.items?.item ?? [];
 }
 
 /* 초단기실황 파싱 → {tmp, pty}  ※ T1H=-999 = 관측 불가 → null */
@@ -137,7 +137,7 @@ function parseNcstApt(items) {
 
 /* 풍향 각도 → 한국어 8방위 */
 function windDirKo(deg) {
-  if (deg === null || deg === undefined) return '가변';
+  if (deg === null || deg === undefined) return '풍향가변';
   var dirs = ['북','북동','동','남동','남','남서','서','북서'];
   return dirs[Math.round(deg / 45) % 8];
 }
@@ -208,7 +208,14 @@ async function kmaFetchMetar(icao) {
     return parseMetarTime(rb) - parseMetarTime(ra);
   });
   var it = arr[0];
-  return it.metarMsg || it.metar || it.obsrValue || null;
+  var raw = it.metarMsg || it.metar || it.obsrValue || null;
+  /* KMA API가 tm1/tm2 무시하고 구 METAR 반환하는 경우가 있음 (군 공항 위주)
+     3시간 이상 된 METAR는 신뢰할 수 없으므로 null 반환 → NCST/예보로 fallback */
+  if (raw) {
+    var mt = parseMetarTime(raw);
+    if (mt.getTime() > 0 && (Date.now() - mt.getTime()) > 3 * 3600 * 1000) return null;
+  }
+  return raw;
 }
 
 /* METAR 문자열 파싱 → {tmp, dew, windDir, windSpd, windGust, vis, clouds, qnh, pty, sky} */
@@ -264,6 +271,16 @@ function parseMetar(raw) {
     /* QNH */
     if (/^Q\d{4}$/.test(p)) { r.qnh = parseInt(p.slice(1)); continue; }
     if (/^A\d{4}$/.test(p)) { r.qnh = Math.round(parseInt(p.slice(1)) * 33.8639) / 100; continue; }
+
+    /* 현재날씨 현상: RA SN RASN TSRA SHRA FG BR 등 */
+    if (/^[-+]?(?:VC)?(?:MI|PR|BC|DR|BL|SH|TS|FZ)?(?:DZ|RA|SN|SG|GR|GS|PL|BR|FG|FU|VA|DU|SA|HZ)/.test(p)) {
+      if (p.includes('RA') && p.includes('SN'))        r.pty = 2;
+      else if (p.includes('SN') || p.includes('GS') || p.includes('SG') || p.includes('GR'))
+                                                        r.pty = 3;
+      else if (p.includes('TS'))                        r.pty = 4;
+      else if (p.includes('RA') || p.includes('DZ'))   r.pty = 1;
+      continue;
+    }
   }
 
   /* SKY 도출 */
@@ -647,42 +664,92 @@ function parseWrnTitle(title) {
   return { type: type, level: level };
 }
 
-/* getWthrWrnMsg 전국 조회 → [{type,level,region,start,end}] 구조화 배열
-   api.js filterByCity와 동일 방식: t6/t2/area/areaFc만 사용, wrnStnm·wrnMsg 제외 */
+/* t6 필드 파싱 → [{type,level,region}] 배열
+   t6 형식: "o 강풍주의보 : 경기도(하남...) \no 호우주의보 : ..." */
+function parseT6(t6) {
+  var result  = [];
+  var MARITIME = { '풍랑':1,'해일':1,'지진해일':1 };
+  var WRN_TYPES = ['태풍','폭설','대설','호우','강풍','풍랑','폭염','한파','건조','황사','뇌우','안개'];
+  ('\n' + (t6 || '')).split(/\no\s+/).forEach(function(line) {
+    line = line.trim().replace(/\n/g, ' ');
+    var m = line.match(/^([가-힣]+)\s*:\s*(.+)/);
+    if (!m) return;
+    var titlePart = m[1].trim(), region = m[2].trim();
+    var type = '';
+    WRN_TYPES.forEach(function(k) { if (!type && titlePart.includes(k)) type = k; });
+    if (!type || MARITIME[type]) return;
+    var level = titlePart.includes('경보')  ? '경보'
+              : titlePart.includes('주의보') ? '주의보'
+              : titlePart.includes('예비')   ? '예비특보' : '';
+    if (!level) return;
+    result.push({ type: type, level: level, region: region });
+  });
+  return result;
+}
+
+/* 특보 조회:
+   ① getWthrWrnList → 활성 통보문 목록(stnId·tmFc)
+   ② stnId별 getWthrWrnMsg?stnId&tmFc → 최신 메시지의 t6 파싱
+   → 특보 유형별 region이 정확히 분리되어 오매칭 제거 */
 async function fetchWrnList() {
   if (!CONFIG.API_KEY) return null;
-  try {
-    var key = CONFIG.API_KEY;
-    if (key.includes('%')) key = decodeURIComponent(key);
-    var url = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
-    url.searchParams.set('serviceKey', key);
-    url.searchParams.set('pageNo',    '1');
-    url.searchParams.set('numOfRows', '100');
-    url.searchParams.set('dataType',  'JSON');
-    var res  = await fetch(url.toString());
-    var json = await res.json();
-    var rc   = json?.response?.header?.resultCode;
-    if (rc !== '00') { console.warn('[특보] getWthrWrnMsg resultCode:', rc); return null; }
-    var items = json?.response?.body?.items?.item;
-    if (!items) return [];
-    var arr = Array.isArray(items) ? items : [items];
+  var key = CONFIG.API_KEY;
+  if (key.includes('%')) key = decodeURIComponent(key);
 
-    return arr.map(function(w) {
-      var titleStr = String(w.wrnTitle || '');
-      var parsed   = parseWrnTitle(titleStr);
-      if (!parsed.type) return null;
-      /* wrnStnm(발표기관명)·wrnMsg(통보문 본문) 제외 — 발표기관명이 키워드에 오매칭되는 근본 차단 */
-      var region = [w.t6, w.t2, w.area, w.areaFc].filter(Boolean).join(' ');
-      return {
-        type:   parsed.type,
-        level:  parsed.level,
-        region: region,
-        start:  fmtWrnTime(String(w.tmFc || '')),
-        end:    '',
-      };
-    }).filter(Boolean);
+  try {
+    /* ① 통보문 목록 */
+    var listUrl = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnList');
+    listUrl.searchParams.set('serviceKey', key);
+    listUrl.searchParams.set('pageNo',     '1');
+    listUrl.searchParams.set('numOfRows',  '200');
+    listUrl.searchParams.set('dataType',   'JSON');
+    var listJson = await fetch(listUrl.toString()).then(function(r){ return r.json(); });
+    if (listJson?.response?.header?.resultCode !== '00') {
+      console.warn('[특보] getWthrWrnList rc:', listJson?.response?.header?.resultCode);
+      return null;
+    }
+    var listItems = listJson?.response?.body?.items?.item;
+    if (!listItems) return [];
+    if (!Array.isArray(listItems)) listItems = [listItems];
+
+    /* ② stnId별 최신 tmFc 수집 */
+    var stnLatest = {};
+    listItems.forEach(function(w) {
+      var sid = String(w.stnId || ''), tfc = String(w.tmFc || '');
+      if (sid && (!stnLatest[sid] || tfc > stnLatest[sid])) stnLatest[sid] = tfc;
+    });
+
+    /* ③ 각 station 병렬 조회 → t6 파싱 */
+    var allWarnings = [];
+    await Promise.all(Object.keys(stnLatest).map(async function(stnId) {
+      try {
+        var msgUrl = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
+        msgUrl.searchParams.set('serviceKey', key);
+        msgUrl.searchParams.set('stnId',      stnId);
+        msgUrl.searchParams.set('tmFc',       stnLatest[stnId]);
+        msgUrl.searchParams.set('numOfRows',  '100');
+        msgUrl.searchParams.set('dataType',   'JSON');
+        var json = await fetch(msgUrl.toString()).then(function(r){ return r.json(); });
+        if (json?.response?.header?.resultCode !== '00') return;
+        var msgs = json?.response?.body?.items?.item;
+        if (!msgs) return;
+        if (!Array.isArray(msgs)) msgs = [msgs];
+        msgs.sort(function(a, b) { return (+(b.tmSeq || 0)) - (+(a.tmSeq || 0)); });
+        var top = msgs[0];
+        var t6  = top?.t6 || '';
+        var tfc = top?.tmFc || stnLatest[stnId];
+        parseT6(t6).forEach(function(w) {
+          allWarnings.push({ type: w.type, level: w.level, region: w.region,
+                             start: fmtWrnTime(String(tfc)), end: '' });
+        });
+      } catch(e) {
+        console.warn('[특보] stnId=' + stnId + ' 오류:', e.message);
+      }
+    }));
+
+    return allWarnings;
   } catch(e) {
-    console.warn('[특보] getWthrWrnMsg 오류:', e.message);
+    console.warn('[특보] fetchWrnList 오류:', e.message);
     return null;
   }
 }
@@ -721,10 +788,13 @@ function buildWarnLabel(msgs) {
         types[m.tag] = true;
     });
   });
-  var primary = types['태풍'] ? '태풍' : types['폭설'] ? '폭설' : '호우';
-  var extras  = ['강풍','폭염','한파','건조','태풍'].filter(function(t) {
-    return types[t] && t !== primary;
-  });
+  var WRN_ORDER = ['태풍','호우','폭설','대설','강풍','폭염','한파','건조'];
+  var primary = null;
+  for (var _i = 0; _i < WRN_ORDER.length; _i++) {
+    if (types[WRN_ORDER[_i]]) { primary = WRN_ORDER[_i]; break; }
+  }
+  if (!primary) return '*특보현황';
+  var extras = WRN_ORDER.filter(function(t) { return types[t] && t !== primary; });
   var label = '*' + primary + '특보';
   if (extras.length)
     label += ', ' + extras.map(function(t){ return t+'특보'; }).join(', ');
@@ -751,17 +821,32 @@ function wrnLevelRank(lv) {
   return (lv === '경보') ? 3 : (lv === '주의보') ? 2 : (lv === '예비특보') ? 1 : 0;
 }
 
+/* 도명 약어 → 전체명 맵 (약어가 전체명의 부분문자열이 아닌 것만 — 경남≠경상남도 등) */
+var _PROV_ALIAS = { '경남':'경상남도','경북':'경상북도','전남':'전라남도','충남':'충청남도','충북':'충청북도' };
+/* 광역시/특별시 이름 — 다른 도의 괄호 목록 안에도 동명이시로 등장할 수 있어 최상위(괄호 밖) 매칭만 허용 */
+var _METRO_SET  = { '서울':1,'부산':1,'대구':1,'인천':1,'광주':1,'대전':1,'울산':1,'세종':1 };
+/* kw가 region에 실제 포함되는지 판별
+   · 도명 약어: 전체명이 괄호 제거(최상위) 텍스트에 있어야 함
+   · 광역시명: 괄호 안 다른 도 하위 지명과 혼동 방지 위해 괄호 제거 텍스트에서 확인
+   · 일반 시/군/구: 전체 텍스트에서 확인 (괄호 안 세부 지명 포함) */
+function _kwInRegion(kw, full, top) {
+  if (_PROV_ALIAS[kw]) return top.includes(_PROV_ALIAS[kw]);
+  if (_METRO_SET[kw])  return top.includes(kw);
+  return full.includes(kw);
+}
+
 /* 공항-region 매칭 구체성 점수: AND 조건 > 긴 단일 키워드 > 짧은 단일 키워드 (0 = 불일치) */
 function aptMatchSpec(apt, region) {
   var keys = apt.wrnKeys && apt.wrnKeys.length ? apt.wrnKeys : [apt.wrnCity || ''];
+  var top  = region.replace(/\([^()]*\)/g, '').replace(/[()]/g, '');
   return keys.reduce(function(max, kw) {
     var s = 0;
     if (Array.isArray(kw)) {
-      s = kw.every(function(k) { return k && region.includes(k); })
+      s = kw.every(function(k) { return k && _kwInRegion(k, region, top); })
         ? kw.reduce(function(sum, k) { return sum + k.length; }, 0)
         : 0;
     } else {
-      s = (kw && region.includes(kw)) ? kw.length : 0;
+      s = (kw && _kwInRegion(kw, region, top)) ? kw.length : 0;
     }
     return Math.max(max, s);
   }, 0);
@@ -921,11 +1006,17 @@ function renderOvTable(allData, dates) {
       if (isTd) {
         /* 현재 날씨 (METAR PTY + SKY) + 풍향풍속 */
         var windLine = '';
-        if (cur.windSpd !== null) {
-          var wDir = cur.windDir !== null ? windDirKo(cur.windDir) : '가변';
-          var wSpd = knotsToMs(cur.windSpd) + 'm/s';
-          if (cur.windGust) wSpd += '(돌풍' + knotsToMs(cur.windGust) + ')';
-          windLine = '<br><small class="ov-wind">' + wDir + ' ' + wSpd + '</small>';
+        if (cur.windSpd != null && !isNaN(cur.windSpd)) {
+          var windText;
+          if (cur.windSpd === 0) {
+            windText = '정온';
+          } else {
+            var wDir = (cur.windDir != null) ? windDirKo(cur.windDir) : '풍향가변';
+            var wSpd = knotsToMs(cur.windSpd) + 'm/s';
+            if (cur.windGust) wSpd += '(돌풍' + knotsToMs(cur.windGust) + ')';
+            windText = wDir + ' ' + wSpd;
+          }
+          windLine = '<br><small class="ov-wind">' + windText + '</small>';
         }
         amTxt = wxTxt(cur.pty, cur.sky) + windLine;
         pmTxt = dy ? wxTxt(dy.pmWx.pty, dy.pmWx.sky) : '-';
@@ -1026,12 +1117,21 @@ async function loadAptData(apt, chipEl) {
       }
 
       /* 2순위: METAR에서 기온 미확보 시 NCST fallback (T1H=-999 제외) */
-      if ((!result.current || result.current.tmp === null) && ncstP.status === 'fulfilled') {
+      if (ncstP.status === 'fulfilled') {
         try {
           var ncstObs = parseNcstApt(ncstP.value);
-          if (!result.current) result.current = { pty: ncstObs.pty, sky: 1, tmp: null };
-          else result.current.pty = ncstObs.pty;
-          if (ncstObs.tmp !== null) result.current.tmp = ncstObs.tmp;
+          if (!result.current) {
+            result.current = { pty: ncstObs.pty, sky: 1, tmp: ncstObs.tmp };
+          } else {
+            /* NCST PTY 보정 (METAR보다 실시간성 우수) */
+            if (ncstObs.pty > 0) result.current.pty = ncstObs.pty;
+            if (result.current.tmp === null) {
+              result.current.tmp = ncstObs.tmp;
+            } else if (ncstObs.tmp !== null && Math.abs(result.current.tmp - ncstObs.tmp) > 15) {
+              /* METAR 기온이 NCST와 15°C 이상 차이 → 센서오류/API캐시 가능성 → NCST로 대체 */
+              result.current.tmp = ncstObs.tmp;
+            }
+          }
         } catch(ne) { /* NCST 파싱 오류 무시 */ }
       }
     }
@@ -1110,8 +1210,9 @@ async function loadAll() {
     });
   }
 
-  /* 캐시 유효하면 API 호출 없이 렌더 */
-  var cachedAll = _loadOvCache();
+  /* F5(수동 새로고침) 시 캐시 무시 — 링크/자동갱신 진입 시만 캐시 활용 */
+  var _navType = (performance.getEntriesByType('navigation')[0] || {}).type;
+  var cachedAll = (_navType === 'reload') ? null : _loadOvCache();
   if (cachedAll) {
     // 캐시 데이터 사용
     AIRPORTS.forEach(function(apt) {
