@@ -873,11 +873,10 @@ function buildAptWarnMaps(list) {
         map[apt.code].push(entry);
       } else {
         var cur = map[apt.code][existIdx];
-        /* 더 구체적인 매칭이 우선(spec 높으면 교체).
-           동점이면 높은 단계 유지 — 광역 도/시 키워드가 같을 때는 상위 경보를 표시.
-           구체적 시/군 키워드는 aptMatchSpec에서 2배 가중치를 받으므로
-           포항처럼 시 단위로 주의보가 명시된 경우 spec이 높아 자동으로 우선됨 */
-        if (spec > (cur._spec || 0) || (spec === (cur._spec || 0) && wrnLevelRank(w.level) > wrnLevelRank(cur.level))) {
+        /* 경보 단계 절대 우선, 동급일 때만 spec tiebreak
+           (광역 경보가 spec이 낮아도 세부지역 주의보보다 항상 우선 표시) */
+        if (wrnLevelRank(w.level) > wrnLevelRank(cur.level) ||
+            (wrnLevelRank(w.level) === wrnLevelRank(cur.level) && spec > (cur._spec || 0))) {
           map[apt.code].splice(existIdx, 1, entry);
         }
       }

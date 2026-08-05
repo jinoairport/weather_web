@@ -441,28 +441,34 @@ function updateWeatherWarnings(warnings) {
 
   function parseDT(s) {
     if (!s) return null;
-    s = String(s);
-    return { m: parseInt(s.slice(4,6)), d: parseInt(s.slice(6,8)), h: parseInt(s.slice(8,10)) };
+    s = String(s).replace(/\D/g, '');   // 날짜 구분자(-, /, 공백 등) 제거
+    if (s.length < 8) return null;
+    return {
+      y:   s.slice(2, 4),
+      m:   parseInt(s.slice(4, 6)),
+      d:   parseInt(s.slice(6, 8)),
+      h:   s.length >= 10 ? parseInt(s.slice(8, 10)) : 0,
+      min: s.length >= 12 ? parseInt(s.slice(10, 12)) : 0,
+    };
   }
 
   function fmtWarning(w) {
     const title = w.wrnTitle || w.title || '';
     const area  = w.area || w.areaFc || '';
-    const st    = w.wrnSt || '';
 
     const stDT = parseDT(w.tmSt) || parseDT(w.tmFc);
     const edDT = parseDT(w.tmEd);
 
     let timePart = '';
     if (stDT) {
-      const dateStr = `${stDT.m}.${stDT.d}.`;
-      const startH  = `${stDT.h}`;
-      const endH    = edDT ? `~${edDT.h}시` : '시';
-      timePart = `(${dateStr} ${startH}${endH}`;
-      if (area) timePart += `, ${area} ${st}`;
-      timePart += ')';
+      const dateStr = `'${stDT.y}.${stDT.m}.${stDT.d}`;
+      const startT  = `${pad2(stDT.h)}:${pad2(stDT.min)}`;
+      const endT    = edDT ? `~${pad2(edDT.h)}:${pad2(edDT.min)}` : '~';
+      timePart = area
+        ? `[${area}, ${dateStr} ${startT} ${endT}]`
+        : `[${dateStr} ${startT} ${endT}]`;
     } else if (area) {
-      timePart = `(${area} ${st})`;
+      timePart = `[${area}]`;
     }
 
     const prefix = w.isPreliminary ? '[예비특보] ' : '';
