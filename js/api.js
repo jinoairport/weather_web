@@ -313,11 +313,19 @@ async function _fetchHeatWarns(wrnKeys) {
         var ci = line.indexOf(':');
         if (ci < 0) return;
         var region = line.slice(ci + 1).trim();
-        var mk = matchSpecAndKey(region);
-        if (!mk.spec) return;
+        /* 쉼표로 분리된 세그먼트별 매칭 → 가장 잘 맞는 세그먼트의 원문 텍스트를 area로 사용
+           예) '부산(부산동부 제외), 대구(달성군 제외)' → '부산(부산동부 제외)' */
+        var bestMk = { spec: 0, key: '', segment: '' };
+        region.split(/,\s*/).forEach(function(seg) {
+          var mk = matchSpecAndKey(seg.trim());
+          if (mk.spec > bestMk.spec) { bestMk = { spec: mk.spec, key: mk.key, segment: seg.trim() }; }
+        });
+        if (!bestMk.spec) return;
         var cur = best['폭염'];
-        if (!cur || mk.spec > cur.spec || (mk.spec === cur.spec && rankHeat(level) > rankHeat(cur.level))) {
-          best['폭염'] = { wrnTitle: '폭염' + level, tmSt: item.tmSt, tmEd: item.tmEd, spec: mk.spec, area: mk.key };
+        /* 경보 단계 절대 우선, 동급일 때만 spec으로 tiebreak */
+        if (!cur || rankHeat(level) > rankHeat(cur.level) ||
+            (rankHeat(level) === rankHeat(cur.level) && bestMk.spec > cur.spec)) {
+          best['폭염'] = { wrnTitle: '폭염' + level, tmSt: item.tmSt, tmEd: item.tmEd, spec: bestMk.spec, area: bestMk.segment };
         }
       });
     });
