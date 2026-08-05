@@ -16,6 +16,24 @@ window.addEventListener('DOMContentLoaded', async () => {
 
 });
 
+/* 다음 자동갱신까지 대기 시간: 다음 발표시각+5분에 맞추되 최대 10분 */
+function _msUntilNextRefresh() {
+  const now = new Date();
+  const totalMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+  const baseHours = [2, 5, 8, 11, 14, 17, 20, 23];
+  const BUF = 5;
+  for (const bh of baseHours) {
+    const triggerMin = bh * 60 + BUF;
+    if (totalMin < triggerMin) {
+      const ms = (triggerMin - totalMin) * 60 * 1000;
+      return Math.min(ms, 10 * 60 * 1000); // 최대 10분
+    }
+  }
+  // 23:05 이후 → 다음날 02:05까지
+  const ms = ((24 * 60 + 2 * 60 + BUF) - totalMin) * 60 * 1000;
+  return Math.min(ms, 10 * 60 * 1000);
+}
+
 /* ===================== 데이터 로드 ===================== */
 async function refreshData() {
   // 이전 타이머 초기화 (중복 방지)
@@ -51,8 +69,7 @@ async function refreshData() {
     console.error(e);
     document.getElementById('last-update').textContent = '업데이트 실패';
   } finally {
-    // 10분 후 자동갱신 예약
-    _autoRefreshTimer = setTimeout(refreshData, 10 * 60 * 1000);
+    _autoRefreshTimer = setTimeout(refreshData, _msUntilNextRefresh());
   }
 }
 

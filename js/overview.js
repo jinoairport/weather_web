@@ -899,15 +899,17 @@ function renderWarnCell(warns) {
   }).join('<br>');
 }
 
-/* 셀 배경·글자색 적용 */
+/* 셀 배경·글자색 적용 (CSS 클래스 기반 — !important로 행 배경 재정의) */
 function styleWarnCell(cell, warns) {
+  cell.classList.remove('wl-critical', 'wl-alert', 'wl-notice', 'wl-pre');
   var hasCritical = warns.some(function(w){ return w.level === '중대경보'; });
   var hasAlert    = warns.some(function(w){ return w.level === '경보'; });
   var hasNotice   = warns.some(function(w){ return w.level === '주의보'; });
   var hasPre      = warns.some(function(w){ return w.level === '예비특보'; });
-  cell.style.backgroundColor = hasCritical ? '#cc0000' : hasAlert ? '#ffd6d6' : hasNotice ? '#fffbe6' : hasPre ? '#f0f4ff' : '';
-  cell.style.color            = hasCritical ? '#fff'    : hasAlert ? '#c00'    : hasNotice ? '#a06000' : hasPre ? '#3a5ca0' : '';
-  cell.style.fontWeight       = (hasCritical || hasAlert) ? 'bold' : '';
+  if (hasCritical)    cell.classList.add('wl-critical');
+  else if (hasAlert)  cell.classList.add('wl-alert');
+  else if (hasNotice) cell.classList.add('wl-notice');
+  else if (hasPre)    cell.classList.add('wl-pre');
 }
 
 /* contenteditable 셀 localStorage 저장/복원 바인딩

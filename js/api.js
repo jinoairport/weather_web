@@ -243,31 +243,120 @@ function filterByCity(arr, keys) {
   });
 }
 
-/* 기상청 기상특보 조회 (429/5xx 시 재시도) */
-async function fetchWeatherWarning(_retry = true) {
-  const city = getCurrentWrnKeys();
-  const url  = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
-  url.searchParams.set('serviceKey', CONFIG.API_KEY);
-  url.searchParams.set('pageNo',    '1');
-  url.searchParams.set('numOfRows', '100');
-  url.searchParams.set('dataType',  'JSON');
+/* 폭염특보 전용 조회 — getWthrWrnList → getWthrWrnMsg(stnId) 경유
+   stnId 미지정 getWthrWrnMsg 응답에 폭염이 누락되는 경우를 보완 */
+async function _fetchHeatWarns(wrnKeys) {
+  var keyArr = Array.isArray(wrnKeys) ? wrnKeys : [wrnKeys];
 
-  const res = await fetch(url.toString());
-  if (!res.ok) {
-    if (_retry && (res.status >= 500 || res.status === 429)) {
-      const delay = res.status === 429 ? 5000 : 2000;
-      await new Promise(r => setTimeout(r, delay));
-      return fetchWeatherWarning(false);
-    }
-    return [];
+  /* spec + 매칭된 대표 키워드 반환 (area 표시용) */
+  function matchSpecAndKey(region) {
+    var top = region.replace(/\([^()]*\)/g, '').replace(/[()]/g, '');
+    var bestSpec = 0, bestKey = '';
+    keyArr.forEach(function(kw) {
+      var s = 0, key = '';
+      if (Array.isArray(kw)) {
+        s = kw.every(function(k){ return k && _kwInRegion(k, region, top); })
+           ? kw.reduce(function(sum, k){ return sum + k.length; }, 0) : 0;
+        key = kw[0] || '';
+      } else {
+        if (!kw || !_kwInRegion(kw, region, top)) return;
+        s = (_PROV_ALIAS[kw] || _METRO_SET[kw]) ? kw.length : kw.length * 2;
+        key = kw;
+      }
+      if (s > bestSpec) { bestSpec = s; bestKey = key; }
+    });
+    return { spec: bestSpec, key: bestKey };
   }
-  const json = await res.json();
-  if (json?.response?.header?.resultCode !== '00') return [];
 
-  const items = json?.response?.body?.items?.item;
-  if (!items) return [];
-  const arr = Array.isArray(items) ? items : [items];
-  return filterByCity(arr, city);
+  function rankHeat(lv) {
+    return lv === '중대경보' ? 4 : lv === '경보' ? 3 : lv === '주의보' ? 2 : lv === '예비특보' ? 1 : 0;
+  }
+
+  /* 1) 활성 stnId 목록 */
+  var lu = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnList');
+  lu.searchParams.set('serviceKey', CONFIG.API_KEY);
+  lu.searchParams.set('pageNo',    '1');
+  lu.searchParams.set('numOfRows', '200');
+  lu.searchParams.set('dataType',  'JSON');
+  var lj = await fetch(lu.toString()).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+  var lItems = lj && lj.response && lj.response.body && lj.response.body.items && lj.response.body.items.item;
+  if (!lItems) return [];
+  var stnIds = Array.from(new Set((Array.isArray(lItems) ? lItems : [lItems]).map(function(i){ return i.stnId; }).filter(Boolean)));
+  if (!stnIds.length) return [];
+
+  /* 2) 각 stnId별 getWthrWrnMsg → t6 파싱 → 폭염 매칭 */
+  var best = {};  /* '폭염' → { level, wrnTitle, tmSt, tmEd, spec } */
+
+  await Promise.allSettled(stnIds.map(async function(stnId) {
+    var mu = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
+    mu.searchParams.set('serviceKey', CONFIG.API_KEY);
+    mu.searchParams.set('pageNo',    '1');
+    mu.searchParams.set('numOfRows', '50');
+    mu.searchParams.set('dataType',  'JSON');
+    mu.searchParams.set('stnId', stnId);
+    var mj = await fetch(mu.toString()).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+    var mItems = mj && mj.response && mj.response.body && mj.response.body.items && mj.response.body.items.item;
+    if (!mItems) return;
+    (Array.isArray(mItems) ? mItems : [mItems]).forEach(function(item) {
+      var t6 = item.t6 || '';
+      if (!t6.includes('폭염')) return;
+      t6.split('\n').forEach(function(line) {
+        if (!line.includes('폭염')) return;
+        var mm = line.match(/[가-힣]+/);
+        if (!mm || !mm[0].includes('폭염')) return;
+        var tp = mm[0];
+        var level = tp.includes('중대경보') ? '중대경보'
+                  : tp.includes('경보')    ? '경보'
+                  : tp.includes('주의보')  ? '주의보'
+                  : tp.includes('예비')    ? '예비특보' : '';
+        if (!level) return;
+        var ci = line.indexOf(':');
+        if (ci < 0) return;
+        var region = line.slice(ci + 1).trim();
+        var mk = matchSpecAndKey(region);
+        if (!mk.spec) return;
+        var cur = best['폭염'];
+        if (!cur || mk.spec > cur.spec || (mk.spec === cur.spec && rankHeat(level) > rankHeat(cur.level))) {
+          best['폭염'] = { wrnTitle: '폭염' + level, tmSt: item.tmSt, tmEd: item.tmEd, spec: mk.spec, area: mk.key };
+        }
+      });
+    });
+  }));
+
+  return Object.values(best).map(function(w) { return { wrnTitle: w.wrnTitle, tmSt: w.tmSt, tmEd: w.tmEd, area: w.area }; });
+}
+
+/* 기상청 기상특보 조회
+   일반 특보(stnId 없음)와 폭염특보(stnId별) 병렬 조회 후 병합
+   폭염은 stnId별 조회가 더 정확하므로 regular 결과의 폭염을 대체함 */
+async function fetchWeatherWarning() {
+  const city = getCurrentWrnKeys();
+
+  async function regularFetch() {
+    try {
+      const url = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
+      url.searchParams.set('serviceKey', CONFIG.API_KEY);
+      url.searchParams.set('pageNo',    '1');
+      url.searchParams.set('numOfRows', '100');
+      url.searchParams.set('dataType',  'JSON');
+      const res = await fetch(url.toString());
+      if (!res.ok) return [];
+      const json = await res.json();
+      if (json?.response?.header?.resultCode !== '00') return [];
+      const items = json?.response?.body?.items?.item;
+      if (!items) return [];
+      const arr = Array.isArray(items) ? items : [items];
+      /* 폭염은 _fetchHeatWarns에서 더 정확하게 처리하므로 제외 */
+      return filterByCity(arr, city).filter(function(w){ return !(w.wrnTitle || '').includes('폭염'); });
+    } catch(e) { return []; }
+  }
+
+  const [regular, heat] = await Promise.all([
+    regularFetch(),
+    _fetchHeatWarns(city).catch(function(){ return []; }),
+  ]);
+
+  return regular.concat(heat);
 }
 
 /* localStorage 캐시 — 페이지 재로드 시에도 이전 데이터 복원 */
