@@ -36,12 +36,12 @@ async function kmaFetch(endpoint, params, _retry = true) {
 }
 
 /* 단기예보 발표시각 계산 (02,05,08,11,14,17,20,23시)
-   기상청 발표 후 약 10분이면 데이터 생성 완료 → 10분 버퍼 적용 */
+   기상청 데이터 준비 시간 약 2~3분 → 5분 버퍼 적용 */
 function getBaseTime() {
   const now      = new Date();
   const totalMin = now.getHours() * 60 + now.getMinutes();
   const baseHours = [2, 5, 8, 11, 14, 17, 20, 23];
-  const BUF = 10;
+  const BUF = 5;
   let base = 23;
   for (const bh of baseHours) {
     if (totalMin >= bh * 60 + BUF) base = bh;
@@ -192,7 +192,7 @@ function _kwInRegion(kw, full, top) {
 /* 특보/예비특보 공통 필터 — wrnKeys 배열 내 배열(AND 조건) 지원
    dedup 기준:
    ① 더 구체적인 키워드로 매칭된 것 우선 (AND > 긴 단일 > 짧은 단일)
-   ② 구체성 동률이면 낮은 단계 우선 (예비<주의보<경보) — 경남 경보가 부산 주의보를 잘못 덮는 방지 */
+   ② 구체성 동률이면 높은 단계 우선 (중대경보>경보>주의보>예비) — 시/군 명시된 주의보는 spec 2배로 자동 우선 */
 function filterByCity(arr, keys) {
   var keyArr = Array.isArray(keys) ? keys : [keys];
 
@@ -205,7 +205,10 @@ function filterByCity(arr, keys) {
           ? kw.reduce(function(sum, k) { return sum + k.length; }, 0)
           : 0;
       } else {
-        s = (kw && _kwInRegion(kw, targets, top)) ? kw.length : 0;
+        if (!kw || !_kwInRegion(kw, targets, top)) { return max; }
+        /* 도명약어/광역시 = 광역 매칭(coarse) → kw.length
+           일반 시·군·구·읍 = 세부 매칭(fine) → kw.length * 2 */
+        s = (_PROV_ALIAS[kw] || _METRO_SET[kw]) ? kw.length : kw.length * 2;
       }
       return Math.max(max, s);
     }, 0);
@@ -222,16 +225,16 @@ function filterByCity(arr, keys) {
     if (spec > 0) matchedWithSpec.push({ w: w, spec: spec });
   });
 
-  /* rank: 예비특보=1, 주의보=2, 경보=3 */
+  /* rank: 예비특보=1, 주의보=2, 경보=3, 중대경보=4 */
   var best = {};
   matchedWithSpec.forEach(function(item) {
     var title = item.w.wrnTitle || '';
-    /* 예비특보 먼저 제거한 뒤 경보/주의보 제거 → '강풍예비특보' → '강풍' 올바르게 추출 */
-    var type  = title.replace('예비특보', '').replace('경보', '').replace('주의보', '').replace('예비', '').replace('특보', '').trim();
-    var rank  = title.includes('예비') ? 1 : title.includes('주의보') ? 2 : title.includes('경보') ? 3 : 0;
+    /* 중대경보 먼저 제거 → '폭염중대경보' → '폭염' 올바르게 추출 */
+    var type  = title.replace('중대경보', '').replace('예비특보', '').replace('경보', '').replace('주의보', '').replace('예비', '').replace('특보', '').trim();
+    var rank  = title.includes('예비') ? 1 : title.includes('주의보') ? 2 : title.includes('중대경보') ? 4 : title.includes('경보') ? 3 : 0;
     var ex    = best[type];
-    /* 더 구체적인 매칭이 우선; 동점이면 낮은 단계(주의보, 예비)를 유지 */
-    if (!ex || item.spec > ex._spec || (item.spec === ex._spec && rank < ex._rank)) {
+    /* 더 구체적인 매칭이 우선; 동점이면 높은 단계 유지 (시/군명 주의보는 spec 2배로 자동 우선) */
+    if (!ex || item.spec > ex._spec || (item.spec === ex._spec && rank > ex._rank)) {
       best[type] = Object.assign({}, item.w, { _spec: item.spec, _rank: rank });
     }
   });

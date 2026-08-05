@@ -678,9 +678,10 @@ function parseT6(t6) {
     var type = '';
     WRN_TYPES.forEach(function(k) { if (!type && titlePart.includes(k)) type = k; });
     if (!type || MARITIME[type]) return;
-    var level = titlePart.includes('경보')  ? '경보'
-              : titlePart.includes('주의보') ? '주의보'
-              : titlePart.includes('예비')   ? '예비특보' : '';
+    var level = titlePart.includes('중대경보') ? '중대경보'
+              : titlePart.includes('경보')    ? '경보'
+              : titlePart.includes('주의보')  ? '주의보'
+              : titlePart.includes('예비')    ? '예비특보' : '';
     if (!level) return;
     result.push({ type: type, level: level, region: region });
   });
@@ -816,9 +817,9 @@ var WRN_PCP_TYPES = { '호우': 1, '대설': 1, '강설': 1, '태풍': 1 };
 /* 공항에 무관한 해상 전용 특보 유형 */
 var MARITIME_WARN_TYPES = { '풍랑': 1, '해일': 1, '지진해일': 1 };
 
-/* 단계 우선순위: 경보=3 > 주의보=2 > 예비특보=1 */
+/* 단계 우선순위: 중대경보=4 > 경보=3 > 주의보=2 > 예비특보=1 */
 function wrnLevelRank(lv) {
-  return (lv === '경보') ? 3 : (lv === '주의보') ? 2 : (lv === '예비특보') ? 1 : 0;
+  return (lv === '중대경보') ? 4 : (lv === '경보') ? 3 : (lv === '주의보') ? 2 : (lv === '예비특보') ? 1 : 0;
 }
 
 /* 도명 약어 → 전체명 맵 (약어가 전체명의 부분문자열이 아닌 것만 — 경남≠경상남도 등) */
@@ -835,7 +836,8 @@ function _kwInRegion(kw, full, top) {
   return full.includes(kw);
 }
 
-/* 공항-region 매칭 구체성 점수: AND 조건 > 긴 단일 키워드 > 짧은 단일 키워드 (0 = 불일치) */
+/* 공항-region 매칭 구체성 점수: AND 조건 > 시/군명 직접매칭 > 도/광역시 광역매칭 (0 = 불일치)
+   일반 시/군 키워드는 도명·광역시 키워드보다 구체적이므로 2배 가중치 적용 */
 function aptMatchSpec(apt, region) {
   var keys = apt.wrnKeys && apt.wrnKeys.length ? apt.wrnKeys : [apt.wrnCity || ''];
   var top  = region.replace(/\([^()]*\)/g, '').replace(/[()]/g, '');
@@ -846,7 +848,10 @@ function aptMatchSpec(apt, region) {
         ? kw.reduce(function(sum, k) { return sum + k.length; }, 0)
         : 0;
     } else {
-      s = (kw && _kwInRegion(kw, region, top)) ? kw.length : 0;
+      if (!kw || !_kwInRegion(kw, region, top)) { return max; }
+      /* 도명약어/광역시 = 광역 매칭(coarse) → kw.length
+         일반 시·군·구·읍·동 = 세부 매칭(fine)  → kw.length * 2 */
+      s = (_PROV_ALIAS[kw] || _METRO_SET[kw]) ? kw.length : kw.length * 2;
     }
     return Math.max(max, s);
   }, 0);
@@ -868,8 +873,11 @@ function buildAptWarnMaps(list) {
         map[apt.code].push(entry);
       } else {
         var cur = map[apt.code][existIdx];
-        /* 더 구체적인 매칭이 우선; 동점이면 낮은 단계(예비<주의보<경보) 유지 — 광역 경보가 지역 주의보를 덮는 방지 */
-        if (spec > (cur._spec || 0) || (spec === (cur._spec || 0) && wrnLevelRank(w.level) < wrnLevelRank(cur.level))) {
+        /* 더 구체적인 매칭이 우선(spec 높으면 교체).
+           동점이면 높은 단계 유지 — 광역 도/시 키워드가 같을 때는 상위 경보를 표시.
+           구체적 시/군 키워드는 aptMatchSpec에서 2배 가중치를 받으므로
+           포항처럼 시 단위로 주의보가 명시된 경우 spec이 높아 자동으로 우선됨 */
+        if (spec > (cur._spec || 0) || (spec === (cur._spec || 0) && wrnLevelRank(w.level) > wrnLevelRank(cur.level))) {
           map[apt.code].splice(existIdx, 1, entry);
         }
       }
@@ -893,12 +901,13 @@ function renderWarnCell(warns) {
 
 /* 셀 배경·글자색 적용 */
 function styleWarnCell(cell, warns) {
-  var hasAlert  = warns.some(function(w){ return w.level === '경보'; });
-  var hasNotice = warns.some(function(w){ return w.level === '주의보'; });
-  var hasPre    = warns.some(function(w){ return w.level === '예비특보'; });
-  cell.style.backgroundColor = hasAlert ? '#ffd6d6' : hasNotice ? '#fffbe6' : hasPre ? '#f0f4ff' : '';
-  cell.style.color            = hasAlert ? '#c00'    : hasNotice ? '#a06000' : hasPre ? '#3a5ca0' : '';
-  cell.style.fontWeight       = hasAlert ? 'bold'    : '';
+  var hasCritical = warns.some(function(w){ return w.level === '중대경보'; });
+  var hasAlert    = warns.some(function(w){ return w.level === '경보'; });
+  var hasNotice   = warns.some(function(w){ return w.level === '주의보'; });
+  var hasPre      = warns.some(function(w){ return w.level === '예비특보'; });
+  cell.style.backgroundColor = hasCritical ? '#cc0000' : hasAlert ? '#ffd6d6' : hasNotice ? '#fffbe6' : hasPre ? '#f0f4ff' : '';
+  cell.style.color            = hasCritical ? '#fff'    : hasAlert ? '#c00'    : hasNotice ? '#a06000' : hasPre ? '#3a5ca0' : '';
+  cell.style.fontWeight       = (hasCritical || hasAlert) ? 'bold' : '';
 }
 
 /* contenteditable 셀 localStorage 저장/복원 바인딩
