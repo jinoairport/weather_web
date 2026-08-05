@@ -322,16 +322,21 @@ async function _fetchHeatWarns(wrnKeys) {
         });
         if (!bestMk.spec) return;
         var cur = best['폭염'];
-        /* 경보 단계 절대 우선, 동급일 때만 spec으로 tiebreak */
+        /* 경보 단계 절대 우선, 동급일 때만 spec으로 tiebreak
+           level 필드를 반드시 저장 → cur.level 비교 가능 */
         if (!cur || rankHeat(level) > rankHeat(cur.level) ||
             (rankHeat(level) === rankHeat(cur.level) && bestMk.spec > cur.spec)) {
-          best['폭염'] = { wrnTitle: '폭염' + level, tmSt: item.tmSt, tmEd: item.tmEd, spec: bestMk.spec, area: bestMk.segment };
+          best['폭염'] = { wrnTitle: '폭염' + level, level: level,
+                           tmSt: item.tmSt, tmEd: item.tmEd, tmFc: item.tmFc,
+                           spec: bestMk.spec, area: bestMk.segment };
         }
       });
     });
   }));
 
-  return Object.values(best).map(function(w) { return { wrnTitle: w.wrnTitle, tmSt: w.tmSt, tmEd: w.tmEd, area: w.area }; });
+  return Object.values(best).map(function(w) {
+    return { wrnTitle: w.wrnTitle, tmSt: w.tmSt, tmEd: w.tmEd, tmFc: w.tmFc, area: w.area };
+  });
 }
 
 /* 기상청 기상특보 조회

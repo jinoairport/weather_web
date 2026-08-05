@@ -441,7 +441,7 @@ function updateWeatherWarnings(warnings) {
 
   function parseDT(s) {
     if (!s) return null;
-    s = String(s);
+    s = String(s).replace(/\D/g, '');   // 날짜 구분자(-, /, 공백 등) 제거
     if (s.length < 8) return null;
     return {
       y:   s.slice(2, 4),
@@ -465,10 +465,10 @@ function updateWeatherWarnings(warnings) {
       const startT  = `${pad2(stDT.h)}:${pad2(stDT.min)}`;
       const endT    = edDT ? `~${pad2(edDT.h)}:${pad2(edDT.min)}` : '~';
       timePart = area
-        ? `(${area}, ${dateStr} ${startT} ${endT})`
-        : `(${dateStr} ${startT} ${endT})`;
+        ? `[${area}, ${dateStr} ${startT} ${endT}]`
+        : `[${dateStr} ${startT} ${endT}]`;
     } else if (area) {
-      timePart = `(${area})`;
+      timePart = `[${area}]`;
     }
 
     const prefix = w.isPreliminary ? '[예비특보] ' : '';
