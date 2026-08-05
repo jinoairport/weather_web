@@ -248,17 +248,24 @@ function filterByCity(arr, keys) {
 async function _fetchHeatWarns(wrnKeys) {
   var keyArr = Array.isArray(wrnKeys) ? wrnKeys : [wrnKeys];
 
-  function matchSpec(region) {
+  /* spec + 매칭된 대표 키워드 반환 (area 표시용) */
+  function matchSpecAndKey(region) {
     var top = region.replace(/\([^()]*\)/g, '').replace(/[()]/g, '');
-    return keyArr.reduce(function(max, kw) {
+    var bestSpec = 0, bestKey = '';
+    keyArr.forEach(function(kw) {
+      var s = 0, key = '';
       if (Array.isArray(kw)) {
-        var s = kw.every(function(k){ return k && _kwInRegion(k, region, top); })
-               ? kw.reduce(function(sum, k){ return sum + k.length; }, 0) : 0;
-        return Math.max(max, s);
+        s = kw.every(function(k){ return k && _kwInRegion(k, region, top); })
+           ? kw.reduce(function(sum, k){ return sum + k.length; }, 0) : 0;
+        key = kw[0] || '';
+      } else {
+        if (!kw || !_kwInRegion(kw, region, top)) return;
+        s = (_PROV_ALIAS[kw] || _METRO_SET[kw]) ? kw.length : kw.length * 2;
+        key = kw;
       }
-      if (!kw || !_kwInRegion(kw, region, top)) return max;
-      return Math.max(max, (_PROV_ALIAS[kw] || _METRO_SET[kw]) ? kw.length : kw.length * 2);
-    }, 0);
+      if (s > bestSpec) { bestSpec = s; bestKey = key; }
+    });
+    return { spec: bestSpec, key: bestKey };
   }
 
   function rankHeat(lv) {
@@ -306,48 +313,48 @@ async function _fetchHeatWarns(wrnKeys) {
         var ci = line.indexOf(':');
         if (ci < 0) return;
         var region = line.slice(ci + 1).trim();
-        var spec = matchSpec(region);
-        if (!spec) return;
+        var mk = matchSpecAndKey(region);
+        if (!mk.spec) return;
         var cur = best['폭염'];
-        if (!cur || spec > cur.spec || (spec === cur.spec && rankHeat(level) > rankHeat(cur.level))) {
-          best['폭염'] = { wrnTitle: '폭염' + level, tmSt: item.tmSt, tmEd: item.tmEd, spec: spec };
+        if (!cur || mk.spec > cur.spec || (mk.spec === cur.spec && rankHeat(level) > rankHeat(cur.level))) {
+          best['폭염'] = { wrnTitle: '폭염' + level, tmSt: item.tmSt, tmEd: item.tmEd, spec: mk.spec, area: mk.key };
         }
       });
     });
   }));
 
-  return Object.values(best).map(function(w) { return { wrnTitle: w.wrnTitle, tmSt: w.tmSt, tmEd: w.tmEd }; });
+  return Object.values(best).map(function(w) { return { wrnTitle: w.wrnTitle, tmSt: w.tmSt, tmEd: w.tmEd, area: w.area }; });
 }
 
-/* 기상청 기상특보 조회 (429/5xx 시 재시도) */
-async function fetchWeatherWarning(_retry = true) {
+/* 기상청 기상특보 조회
+   일반 특보(stnId 없음)와 폭염특보(stnId별) 병렬 조회 후 병합
+   폭염은 stnId별 조회가 더 정확하므로 regular 결과의 폭염을 대체함 */
+async function fetchWeatherWarning() {
   const city = getCurrentWrnKeys();
-  const url  = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
-  url.searchParams.set('serviceKey', CONFIG.API_KEY);
-  url.searchParams.set('pageNo',    '1');
-  url.searchParams.set('numOfRows', '100');
-  url.searchParams.set('dataType',  'JSON');
 
-  const res = await fetch(url.toString());
-  if (!res.ok) {
-    if (_retry && (res.status >= 500 || res.status === 429)) {
-      const delay = res.status === 429 ? 5000 : 2000;
-      await new Promise(r => setTimeout(r, delay));
-      return fetchWeatherWarning(false);
-    }
-    return [];
+  async function regularFetch() {
+    try {
+      const url = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
+      url.searchParams.set('serviceKey', CONFIG.API_KEY);
+      url.searchParams.set('pageNo',    '1');
+      url.searchParams.set('numOfRows', '100');
+      url.searchParams.set('dataType',  'JSON');
+      const res = await fetch(url.toString());
+      if (!res.ok) return [];
+      const json = await res.json();
+      if (json?.response?.header?.resultCode !== '00') return [];
+      const items = json?.response?.body?.items?.item;
+      if (!items) return [];
+      const arr = Array.isArray(items) ? items : [items];
+      /* 폭염은 _fetchHeatWarns에서 더 정확하게 처리하므로 제외 */
+      return filterByCity(arr, city).filter(function(w){ return !(w.wrnTitle || '').includes('폭염'); });
+    } catch(e) { return []; }
   }
-  const json = await res.json();
-  if (json?.response?.header?.resultCode !== '00') return [];
 
-  const items = json?.response?.body?.items?.item;
-  if (!items) return [];
-  const arr = Array.isArray(items) ? items : [items];
-  const regular = filterByCity(arr, city);
-
-  /* 폭염은 stnId 미지정 조회에서 누락될 수 있으므로 별도 보완 */
-  const hasHeat = regular.some(function(w){ return (w.wrnTitle || '').includes('폭염'); });
-  const heat = hasHeat ? [] : await _fetchHeatWarns(city).catch(function(){ return []; });
+  const [regular, heat] = await Promise.all([
+    regularFetch(),
+    _fetchHeatWarns(city).catch(function(){ return []; }),
+  ]);
 
   return regular.concat(heat);
 }
