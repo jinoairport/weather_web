@@ -185,8 +185,7 @@ var _PROV_ALIAS = { '경남':'경상남도','경북':'경상북도','전남':'�
 var _METRO_SET  = { '서울':1,'부산':1,'대구':1,'인천':1,'광주':1,'대전':1,'울산':1,'세종':1 };
 function _kwInRegion(kw, full, top) {
   if (_PROV_ALIAS[kw]) return top.includes(_PROV_ALIAS[kw]);
-  if (_METRO_SET[kw])  return top.includes(kw);
-  return full.includes(kw);
+  return top.includes(kw);   /* 괄호 안 제외 구역 오매칭 방지 */
 }
 
 /* 특보/예비특보 공통 필터 — wrnKeys 배열 내 배열(AND 조건) 지원
