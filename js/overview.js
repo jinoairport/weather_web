@@ -826,35 +826,36 @@ function wrnLevelRank(lv) {
 var _PROV_ALIAS = { '경남':'경상남도','경북':'경상북도','전남':'전라남도','충남':'충청남도','충북':'충청북도' };
 /* 광역시/특별시 이름 — 다른 도의 괄호 목록 안에도 동명이시로 등장할 수 있어 최상위(괄호 밖) 매칭만 허용 */
 var _METRO_SET  = { '서울':1,'부산':1,'대구':1,'인천':1,'광주':1,'대전':1,'울산':1,'세종':1 };
-/* kw가 region에 실제 포함되는지 판별
-   · 도명 약어: 전체명이 괄호 제거(최상위) 텍스트에 있어야 함
-   · 광역시명: 괄호 안 다른 도 하위 지명과 혼동 방지 위해 괄호 제거 텍스트에서 확인
-   · 일반 시/군/구: 전체 텍스트에서 확인 (괄호 안 세부 지명 포함) */
+/* kw가 segment에 실제 포함되는지 판별
+   top = 괄호 안 제외 구역을 제거한 텍스트 — 모든 키워드를 top으로만 비교해
+   '제주(제주시동부 제외)' 경보 region에서 '제주시' 키워드가 제외 텍스트에 오매칭되는 문제 방지 */
 function _kwInRegion(kw, full, top) {
   if (_PROV_ALIAS[kw]) return top.includes(_PROV_ALIAS[kw]);
-  if (_METRO_SET[kw])  return top.includes(kw);
-  return full.includes(kw);
+  return top.includes(kw);
 }
 
 /* 공항-region 매칭 구체성 점수: AND 조건 > 시/군명 직접매칭 > 도/광역시 광역매칭 (0 = 불일치)
-   일반 시/군 키워드는 도명·광역시 키워드보다 구체적이므로 2배 가중치 적용 */
+   세그먼트별로 분리 후 매칭 → 괄호 안 제외 구역에 의한 오매칭 완전 방지 */
 function aptMatchSpec(apt, region) {
   var keys = apt.wrnKeys && apt.wrnKeys.length ? apt.wrnKeys : [apt.wrnCity || ''];
-  var top  = region.replace(/\([^()]*\)/g, '').replace(/[()]/g, '');
-  return keys.reduce(function(max, kw) {
-    var s = 0;
-    if (Array.isArray(kw)) {
-      s = kw.every(function(k) { return k && _kwInRegion(k, region, top); })
-        ? kw.reduce(function(sum, k) { return sum + k.length; }, 0)
-        : 0;
-    } else {
-      if (!kw || !_kwInRegion(kw, region, top)) { return max; }
-      /* 도명약어/광역시 = 광역 매칭(coarse) → kw.length
-         일반 시·군·구·읍·동 = 세부 매칭(fine)  → kw.length * 2 */
-      s = (_PROV_ALIAS[kw] || _METRO_SET[kw]) ? kw.length : kw.length * 2;
-    }
-    return Math.max(max, s);
-  }, 0);
+  var best = 0;
+  region.split(/,\s*/).forEach(function(seg) {
+    seg = seg.trim();
+    var top = seg.replace(/\([^()]*\)/g, '').replace(/[()]/g, '').trim();
+    var s = keys.reduce(function(max, kw) {
+      var score = 0;
+      if (Array.isArray(kw)) {
+        score = kw.every(function(k) { return k && _kwInRegion(k, seg, top); })
+          ? kw.reduce(function(sum, k) { return sum + k.length; }, 0) : 0;
+      } else {
+        if (!kw || !_kwInRegion(kw, seg, top)) return max;
+        score = (_PROV_ALIAS[kw] || _METRO_SET[kw]) ? kw.length : kw.length * 2;
+      }
+      return Math.max(max, score);
+    }, 0);
+    if (s > best) best = s;
+  });
+  return best;
 }
 
 function buildAptWarnMaps(list) {
