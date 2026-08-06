@@ -181,12 +181,14 @@ function getCurrentWrnKeys() {
 var MARITIME_WARN_TITLES = ['풍랑', '해일', '지진해일'];
 
 /* 도명 약어 → 전체명 / 광역시 최상위 매칭 (overview.js _kwInRegion와 동일 로직) */
-var _PROV_ALIAS = { '경남':'경상남도','경북':'경상북도','전남':'전라남도','충남':'충청남도','충북':'충청북도' };
+/* KMA API: t6 region이 약어(경남)·전체명(경상남도) 혼용 → 둘 다 체크 */
+var _PROV_ALIAS = { '경남':'경상남도','경북':'경상북도','전남':'전라남도','전북':'전라북도','충남':'충청남도','충북':'충청북도' };
 var _METRO_SET  = { '서울':1,'부산':1,'대구':1,'인천':1,'광주':1,'대전':1,'울산':1,'세종':1 };
 /* isExcl=true: 제외형 '부산(부산동부 제외)' → top만 검색(제외 텍스트 오매칭 방지)
    isExcl=false: 포함형 '부산(부산중부, 부산서부)' → full 검색(괄호 안 포함 지역 정상 매칭) */
 function _kwInRegion(kw, full, top, isExcl) {
-  if (_PROV_ALIAS[kw]) return top.includes(_PROV_ALIAS[kw]);
+  /* 도명: 약어(경남)·전체명(경상남도) 혼용 대응 — 둘 중 하나라도 top에 있으면 매칭 */
+  if (_PROV_ALIAS[kw]) return top.includes(_PROV_ALIAS[kw]) || top.includes(kw);
   if (_METRO_SET[kw])  return top.includes(kw);
   return isExcl ? top.includes(kw) : full.includes(kw);
 }
@@ -213,15 +215,17 @@ function filterByCity(arr, keys) {
 
   function calcSpec(targets) {
     var top = targets.replace(/\([^()]*\)/g, '').replace(/[()]/g, '');
-    var isExcl = /제외/.test(targets);
+    /* 복합 문자열(t6+t2+area 결합)에 isExcl 적용 불가 — 다른 특보 "제외" 텍스트로
+       인해 포함형 지역 매칭이 깨질 수 있음 → isExcl=false 고정(full 검색)
+       세그먼트별 isExcl은 matchSpecAndKey(폭염), aptMatchSpec(전체현황)에서 처리 */
     return keyArr.reduce(function(max, kw) {
       var s = 0;
       if (Array.isArray(kw)) {
-        s = kw.every(function(k) { return k && _kwInRegion(k, targets, top, isExcl); })
+        s = kw.every(function(k) { return k && _kwInRegion(k, targets, top, false); })
           ? kw.reduce(function(sum, k) { return sum + k.length; }, 0)
           : 0;
       } else {
-        if (!kw || !_kwInRegion(kw, targets, top, isExcl)) { return max; }
+        if (!kw || !_kwInRegion(kw, targets, top, false)) { return max; }
         /* 도명약어/광역시 = 광역 매칭(coarse) → kw.length
            일반 시·군·구·읍 = 세부 매칭(fine) → kw.length * 2 */
         s = (_PROV_ALIAS[kw] || _METRO_SET[kw]) ? kw.length : kw.length * 2;

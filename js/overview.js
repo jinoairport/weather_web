@@ -822,14 +822,15 @@ function wrnLevelRank(lv) {
   return (lv === '중대경보') ? 4 : (lv === '경보') ? 3 : (lv === '주의보') ? 2 : (lv === '예비특보') ? 1 : 0;
 }
 
-/* 도명 약어 → 전체명 맵 (약어가 전체명의 부분문자열이 아닌 것만 — 경남≠경상남도 등) */
-var _PROV_ALIAS = { '경남':'경상남도','경북':'경상북도','전남':'전라남도','충남':'충청남도','충북':'충청북도' };
+/* 도명 약어 → 전체명 맵 (KMA t6: 약어·전체명 혼용 → 둘 다 체크) */
+var _PROV_ALIAS = { '경남':'경상남도','경북':'경상북도','전남':'전라남도','전북':'전라북도','충남':'충청남도','충북':'충청북도' };
 /* 광역시/특별시 이름 — 다른 도의 괄호 목록 안에도 동명이시로 등장할 수 있어 최상위(괄호 밖) 매칭만 허용 */
 var _METRO_SET  = { '서울':1,'부산':1,'대구':1,'인천':1,'광주':1,'대전':1,'울산':1,'세종':1 };
 /* isExcl=true: 제외형 '부산(부산동부 제외)' → top만 검색(제외 텍스트 오매칭 방지)
    isExcl=false: 포함형 '부산(부산중부, 부산서부)' → full 검색(괄호 안 포함 지역 정상 매칭) */
 function _kwInRegion(kw, full, top, isExcl) {
-  if (_PROV_ALIAS[kw]) return top.includes(_PROV_ALIAS[kw]);
+  /* 도명: 약어(경남)·전체명(경상남도) 혼용 대응 — 둘 중 하나라도 top에 있으면 매칭 */
+  if (_PROV_ALIAS[kw]) return top.includes(_PROV_ALIAS[kw]) || top.includes(kw);
   if (_METRO_SET[kw])  return top.includes(kw);
   return isExcl ? top.includes(kw) : full.includes(kw);
 }
