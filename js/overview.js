@@ -921,17 +921,19 @@ function bindEditCells(selector, lsPrefix) {
       if (saved !== null) { cell.innerHTML = saved; cell.dataset.manual = '1'; }
     } catch(e) {}
     cell.addEventListener('blur', function() {
-      var c = cell.innerHTML.trim();
+      /* textContent로 판단 — innerHTML은 빈 셀도 <br> 등을 포함해 오저장됨 */
+      var c = cell.textContent.trim();
       try {
         if (!c) { localStorage.removeItem(lsPrefix + code); cell.dataset.manual = ''; }
-        else    { localStorage.setItem(lsPrefix + code, c); cell.dataset.manual = '1'; }
+        else    { localStorage.setItem(lsPrefix + code, cell.innerHTML); cell.dataset.manual = '1'; }
       } catch(e) {}
     });
   });
 }
 
 /* 특보현황 칸(호우·대설류) + 특이사항 칸(기타 특보) 동시 주입
-   data-manual='1' 셀(수동 편집)은 건너뜀 */
+   색상(styleWarnCell)은 수동편집 여부와 무관하게 항상 적용
+   innerHTML 덮어쓰기만 수동편집 셀에서 건너뜀 */
 function applyWarnCells(pcpMap, othMap) {
   document.querySelectorAll('.ov-warn-cell[data-code]').forEach(function(cell) {
     if (cell.dataset.manual === '1') return;
@@ -941,10 +943,10 @@ function applyWarnCells(pcpMap, othMap) {
     if (!warns.length) cell.innerHTML = '-';
   });
   document.querySelectorAll('.ov-note-cell[data-code]').forEach(function(cell) {
-    if (cell.dataset.manual === '1') return;
     var warns = othMap[cell.dataset.code] || [];
+    styleWarnCell(cell, warns);           /* 색상은 항상 적용 */
+    if (cell.dataset.manual === '1') return;  /* 내용만 수동 보존 */
     cell.innerHTML = renderWarnCell(warns);
-    styleWarnCell(cell, warns);
   });
 }
 
