@@ -183,9 +183,25 @@ var MARITIME_WARN_TITLES = ['풍랑', '해일', '지진해일'];
 /* 도명 약어 → 전체명 / 광역시 최상위 매칭 (overview.js _kwInRegion와 동일 로직) */
 var _PROV_ALIAS = { '경남':'경상남도','경북':'경상북도','전남':'전라남도','충남':'충청남도','충북':'충청북도' };
 var _METRO_SET  = { '서울':1,'부산':1,'대구':1,'인천':1,'광주':1,'대전':1,'울산':1,'세종':1 };
-function _kwInRegion(kw, full, top) {
+/* isExcl=true: 제외형 '부산(부산동부 제외)' → top만 검색(제외 텍스트 오매칭 방지)
+   isExcl=false: 포함형 '부산(부산중부, 부산서부)' → full 검색(괄호 안 포함 지역 정상 매칭) */
+function _kwInRegion(kw, full, top, isExcl) {
   if (_PROV_ALIAS[kw]) return top.includes(_PROV_ALIAS[kw]);
-  return top.includes(kw);   /* 괄호 안 제외 구역 오매칭 방지 */
+  if (_METRO_SET[kw])  return top.includes(kw);
+  return isExcl ? top.includes(kw) : full.includes(kw);
+}
+/* 괄호 깊이 인식 쉼표 분리 — '부산(부산중부, 부산서부)'를 하나의 세그먼트로 유지 */
+function splitRegion(s) {
+  var segs = [], depth = 0, cur = '';
+  for (var i = 0; i < s.length; i++) {
+    var ch = s[i];
+    if (ch === '(') { depth++; cur += ch; }
+    else if (ch === ')') { depth--; cur += ch; }
+    else if (ch === ',' && depth === 0) { if (cur.trim()) segs.push(cur.trim()); cur = ''; }
+    else { cur += ch; }
+  }
+  if (cur.trim()) segs.push(cur.trim());
+  return segs;
 }
 
 /* 특보/예비특보 공통 필터 — wrnKeys 배열 내 배열(AND 조건) 지원
@@ -197,14 +213,15 @@ function filterByCity(arr, keys) {
 
   function calcSpec(targets) {
     var top = targets.replace(/\([^()]*\)/g, '').replace(/[()]/g, '');
+    var isExcl = /제외/.test(targets);
     return keyArr.reduce(function(max, kw) {
       var s = 0;
       if (Array.isArray(kw)) {
-        s = kw.every(function(k) { return k && _kwInRegion(k, targets, top); })
+        s = kw.every(function(k) { return k && _kwInRegion(k, targets, top, isExcl); })
           ? kw.reduce(function(sum, k) { return sum + k.length; }, 0)
           : 0;
       } else {
-        if (!kw || !_kwInRegion(kw, targets, top)) { return max; }
+        if (!kw || !_kwInRegion(kw, targets, top, isExcl)) { return max; }
         /* 도명약어/광역시 = 광역 매칭(coarse) → kw.length
            일반 시·군·구·읍 = 세부 매칭(fine) → kw.length * 2 */
         s = (_PROV_ALIAS[kw] || _METRO_SET[kw]) ? kw.length : kw.length * 2;
@@ -250,15 +267,16 @@ async function _fetchHeatWarns(wrnKeys) {
   /* spec + 매칭된 대표 키워드 반환 (area 표시용) */
   function matchSpecAndKey(region) {
     var top = region.replace(/\([^()]*\)/g, '').replace(/[()]/g, '');
+    var isExcl = /제외/.test(region);
     var bestSpec = 0, bestKey = '';
     keyArr.forEach(function(kw) {
       var s = 0, key = '';
       if (Array.isArray(kw)) {
-        s = kw.every(function(k){ return k && _kwInRegion(k, region, top); })
+        s = kw.every(function(k){ return k && _kwInRegion(k, region, top, isExcl); })
            ? kw.reduce(function(sum, k){ return sum + k.length; }, 0) : 0;
         key = kw[0] || '';
       } else {
-        if (!kw || !_kwInRegion(kw, region, top)) return;
+        if (!kw || !_kwInRegion(kw, region, top, isExcl)) return;
         s = (_PROV_ALIAS[kw] || _METRO_SET[kw]) ? kw.length : kw.length * 2;
         key = kw;
       }
@@ -312,10 +330,10 @@ async function _fetchHeatWarns(wrnKeys) {
         var ci = line.indexOf(':');
         if (ci < 0) return;
         var region = line.slice(ci + 1).trim();
-        /* 쉼표로 분리된 세그먼트별 매칭 → 가장 잘 맞는 세그먼트의 원문 텍스트를 area로 사용
-           예) '부산(부산동부 제외), 대구(달성군 제외)' → '부산(부산동부 제외)' */
+        /* 세그먼트별 매칭 → 가장 잘 맞는 세그먼트의 원문 텍스트를 area로 사용
+           괄호 깊이 인식 분리로 '부산(부산중부, 부산서부)'를 하나의 세그먼트로 유지 */
         var bestMk = { spec: 0, key: '', segment: '' };
-        region.split(/,\s*/).forEach(function(seg) {
+        splitRegion(region).forEach(function(seg) {
           var mk = matchSpecAndKey(seg.trim());
           if (mk.spec > bestMk.spec) { bestMk = { spec: mk.spec, key: mk.key, segment: seg.trim() }; }
         });

@@ -826,29 +826,42 @@ function wrnLevelRank(lv) {
 var _PROV_ALIAS = { '경남':'경상남도','경북':'경상북도','전남':'전라남도','충남':'충청남도','충북':'충청북도' };
 /* 광역시/특별시 이름 — 다른 도의 괄호 목록 안에도 동명이시로 등장할 수 있어 최상위(괄호 밖) 매칭만 허용 */
 var _METRO_SET  = { '서울':1,'부산':1,'대구':1,'인천':1,'광주':1,'대전':1,'울산':1,'세종':1 };
-/* kw가 segment에 실제 포함되는지 판별
-   top = 괄호 안 제외 구역을 제거한 텍스트 — 모든 키워드를 top으로만 비교해
-   '제주(제주시동부 제외)' 경보 region에서 '제주시' 키워드가 제외 텍스트에 오매칭되는 문제 방지 */
-function _kwInRegion(kw, full, top) {
+/* isExcl=true: 제외형 '부산(부산동부 제외)' → top만 검색(제외 텍스트 오매칭 방지)
+   isExcl=false: 포함형 '부산(부산중부, 부산서부)' → full 검색(괄호 안 포함 지역 정상 매칭) */
+function _kwInRegion(kw, full, top, isExcl) {
   if (_PROV_ALIAS[kw]) return top.includes(_PROV_ALIAS[kw]);
-  return top.includes(kw);
+  if (_METRO_SET[kw])  return top.includes(kw);
+  return isExcl ? top.includes(kw) : full.includes(kw);
+}
+/* 괄호 깊이 인식 쉼표 분리 — '부산(부산중부, 부산서부)'를 하나의 세그먼트로 유지 */
+function splitRegion(s) {
+  var segs = [], depth = 0, cur = '';
+  for (var i = 0; i < s.length; i++) {
+    var ch = s[i];
+    if (ch === '(') { depth++; cur += ch; }
+    else if (ch === ')') { depth--; cur += ch; }
+    else if (ch === ',' && depth === 0) { if (cur.trim()) segs.push(cur.trim()); cur = ''; }
+    else { cur += ch; }
+  }
+  if (cur.trim()) segs.push(cur.trim());
+  return segs;
 }
 
 /* 공항-region 매칭 구체성 점수: AND 조건 > 시/군명 직접매칭 > 도/광역시 광역매칭 (0 = 불일치)
-   세그먼트별로 분리 후 매칭 → 괄호 안 제외 구역에 의한 오매칭 완전 방지 */
+   괄호 깊이 인식 분리로 포함형/제외형 모두 정확히 처리 */
 function aptMatchSpec(apt, region) {
   var keys = apt.wrnKeys && apt.wrnKeys.length ? apt.wrnKeys : [apt.wrnCity || ''];
   var best = 0;
-  region.split(/,\s*/).forEach(function(seg) {
-    seg = seg.trim();
+  splitRegion(region).forEach(function(seg) {
     var top = seg.replace(/\([^()]*\)/g, '').replace(/[()]/g, '').trim();
+    var isExcl = /제외/.test(seg);
     var s = keys.reduce(function(max, kw) {
       var score = 0;
       if (Array.isArray(kw)) {
-        score = kw.every(function(k) { return k && _kwInRegion(k, seg, top); })
+        score = kw.every(function(k) { return k && _kwInRegion(k, seg, top, isExcl); })
           ? kw.reduce(function(sum, k) { return sum + k.length; }, 0) : 0;
       } else {
-        if (!kw || !_kwInRegion(kw, seg, top)) return max;
+        if (!kw || !_kwInRegion(kw, seg, top, isExcl)) return max;
         score = (_PROV_ALIAS[kw] || _METRO_SET[kw]) ? kw.length : kw.length * 2;
       }
       return Math.max(max, score);
