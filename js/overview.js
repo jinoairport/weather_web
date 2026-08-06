@@ -945,9 +945,11 @@ function applyWarnCells(pcpMap, othMap) {
   });
   document.querySelectorAll('.ov-note-cell[data-code]').forEach(function(cell) {
     var warns = othMap[cell.dataset.code] || [];
-    styleWarnCell(cell, warns);           /* 색상은 항상 적용 */
-    if (cell.dataset.manual === '1') return;  /* 내용만 수동 보존 */
+    /* 내용·색상 항상 최신 특보로 덮어쓰기 — localStorage 구버전 내용으로 인한 불일치 방지 */
     cell.innerHTML = renderWarnCell(warns);
+    styleWarnCell(cell, warns);
+    /* 남아있는 구버전 ov-note- 캐시 정리 */
+    try { localStorage.removeItem('ov-note-' + cell.dataset.code); } catch(e) {}
   });
 }
 
@@ -1082,7 +1084,7 @@ function renderOvTable(allData, dates) {
   h += '</tbody>';
   tbl.innerHTML = h;
   bindEditCells('.ov-warn-cell', 'ov-warn-');
-  bindEditCells('.ov-note-cell', 'ov-note-');
+  /* 특이사항 칸은 자동생성 특보 전용 → localStorage 연동 제거 */
 }
 
 /* ===================== 단일 공항 데이터 로드 ===================== */
