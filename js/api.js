@@ -321,21 +321,19 @@ async function _fetchHeatWarns(wrnKeys) {
     (Array.isArray(mItems) ? mItems : [mItems]).forEach(function(item) {
       var t6 = item.t6 || '';
       if (!t6.includes('폭염')) return;
-      t6.split('\n').forEach(function(line) {
-        if (!line.includes('폭염')) return;
-        var mm = line.match(/[가-힣]+/);
-        if (!mm || !mm[0].includes('폭염')) return;
-        var tp = mm[0];
+      /* t6 한 섹션이 여러 줄에 걸칠 수 있음 → '\no ' 단위로 청크 분리 후
+         내부 줄바꿈을 공백으로 합쳐서 파싱 (overview.js parseT6와 동일 방식) */
+      ('\n' + t6).split(/\no\s+/).forEach(function(chunk) {
+        chunk = chunk.trim().replace(/\n\s*/g, ' ');
+        if (!chunk.includes('폭염')) return;
+        var m = chunk.match(/^([가-힣]+)\s*:\s*(.+)/);
+        if (!m || !m[1].includes('폭염')) return;
+        var tp = m[1].trim(), region = m[2].trim();
         var level = tp.includes('중대경보') ? '중대경보'
                   : tp.includes('경보')    ? '경보'
                   : tp.includes('주의보')  ? '주의보'
                   : tp.includes('예비')    ? '예비특보' : '';
         if (!level) return;
-        var ci = line.indexOf(':');
-        if (ci < 0) return;
-        var region = line.slice(ci + 1).trim();
-        /* 세그먼트별 매칭 → 가장 잘 맞는 세그먼트의 원문 텍스트를 area로 사용
-           괄호 깊이 인식 분리로 '부산(부산중부, 부산서부)'를 하나의 세그먼트로 유지 */
         var bestMk = { spec: 0, key: '', segment: '' };
         splitRegion(region).forEach(function(seg) {
           var mk = matchSpecAndKey(seg.trim());
@@ -343,8 +341,6 @@ async function _fetchHeatWarns(wrnKeys) {
         });
         if (!bestMk.spec) return;
         var cur = best['폭염'];
-        /* 경보 단계 절대 우선, 동급일 때만 spec으로 tiebreak
-           level 필드를 반드시 저장 → cur.level 비교 가능 */
         if (!cur || rankHeat(level) > rankHeat(cur.level) ||
             (rankHeat(level) === rankHeat(cur.level) && bestMk.spec > cur.spec)) {
           best['폭염'] = { wrnTitle: '폭염' + level, level: level,
