@@ -184,13 +184,25 @@ var MARITIME_WARN_TITLES = ['풍랑', '해일', '지진해일'];
 /* KMA API: t6 region이 약어(경남)·전체명(경상남도) 혼용 → 둘 다 체크 */
 var _PROV_ALIAS = { '경남':'경상남도','경북':'경상북도','전남':'전라남도','전북':'전라북도','충남':'충청남도','충북':'충청북도' };
 var _METRO_SET  = { '서울':1,'부산':1,'대구':1,'인천':1,'광주':1,'대전':1,'울산':1,'세종':1 };
-/* isExcl=true: 제외형 '부산(부산동부 제외)' → top만 검색(제외 텍스트 오매칭 방지)
-   isExcl=false: 포함형 '부산(부산중부, 부산서부)' → full 검색(괄호 안 포함 지역 정상 매칭) */
 function _kwInRegion(kw, full, top, isExcl) {
-  /* 도명: 약어(경남)·전체명(경상남도) 혼용 대응 — 둘 중 하나라도 top에 있으면 매칭 */
   if (_PROV_ALIAS[kw]) return top.includes(_PROV_ALIAS[kw]) || top.includes(kw);
   if (_METRO_SET[kw])  return top.includes(kw);
-  return isExcl ? top.includes(kw) : full.includes(kw);
+  if (!isExcl) return full.includes(kw);
+  /* 제외형: '부산(부산동부 제외)' 처리
+     - kw가 제외 목록에 있거나 제외 항목의 하위 단위면 → 불일치
+     - kw가 부모 지역(top)의 하위 구역이고 제외되지 않았으면 → 일치
+     예) kw='부산서부', top='부산', 제외='부산동부' → 일치 ✓
+         kw='부산동부', 제외='부산동부' → 불일치 ✓
+         kw='사천읍',  top='경상남도', 제외='사천' → 불일치('사천읍'.startsWith('사천')) ✓ */
+  var em = full.match(/\(([^)]+제외)\)/);
+  if (em) {
+    var exclPart = em[1].replace(/\s*제외$/, '').trim();
+    var exclList = exclPart.split(/\s*,\s*/);
+    if (exclList.some(function(e) { e = e.trim(); return e && (e === kw || kw.startsWith(e)); })) return false;
+    var topTokens = top.trim().split(/\s+/);
+    if (topTokens.some(function(t) { return t.length >= 2 && kw.startsWith(t); })) return true;
+  }
+  return top.includes(kw);
 }
 /* 괄호 깊이 인식 쉼표 분리 — '부산(부산중부, 부산서부)'를 하나의 세그먼트로 유지 */
 function splitRegion(s) {
@@ -334,18 +346,28 @@ async function _fetchHeatWarns(wrnKeys) {
                   : tp.includes('주의보')  ? '주의보'
                   : tp.includes('예비')    ? '예비특보' : '';
         if (!level) return;
-        var bestMk = { spec: 0, key: '', segment: '' };
+        var bestMk = { spec: 0, key: '', segment: '', isExcl: false };
         splitRegion(region).forEach(function(seg) {
           var mk = matchSpecAndKey(seg.trim());
-          if (mk.spec > bestMk.spec) { bestMk = { spec: mk.spec, key: mk.key, segment: seg.trim() }; }
+          var segIsExcl = /제외/.test(seg);
+          /* 높은 spec 우선, 동점이면 포함형(isExcl=false)이 제외형보다 우선 */
+          if (mk.spec > bestMk.spec || (mk.spec === bestMk.spec && !segIsExcl && bestMk.isExcl)) {
+            bestMk = { spec: mk.spec, key: mk.key, segment: seg.trim(), isExcl: segIsExcl };
+          }
         });
         if (!bestMk.spec) return;
+        /* 제외형 세그먼트: 표시 area는 매칭된 구체 키워드(예: '부산서부')로 대체
+           → '부산(부산동부 제외)' 대신 '부산서부' 표시 */
+        var areaText = (bestMk.isExcl && bestMk.key) ? bestMk.key : bestMk.segment;
         var cur = best['폭염'];
         if (!cur || rankHeat(level) > rankHeat(cur.level) ||
-            (rankHeat(level) === rankHeat(cur.level) && bestMk.spec > cur.spec)) {
+            (rankHeat(level) === rankHeat(cur.level) && (
+              bestMk.spec > cur.spec ||
+              (bestMk.spec === cur.spec && !bestMk.isExcl && cur.isExcl)
+            ))) {
           best['폭염'] = { wrnTitle: '폭염' + level, level: level,
                            tmSt: item.tmSt, tmEd: item.tmEd, tmFc: item.tmFc,
-                           spec: bestMk.spec, area: bestMk.segment };
+                           spec: bestMk.spec, isExcl: bestMk.isExcl, area: areaText };
         }
       });
     });
