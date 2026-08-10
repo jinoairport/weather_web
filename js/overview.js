@@ -807,8 +807,8 @@ function updateWarnLabel(msgs) {
   if (el) el.textContent = buildWarnLabel(msgs);
 }
 
-/* 강수 관련 특보 타입 (특보현황 칸) */
-var WRN_PCP_TYPES = { '호우': 1, '대설': 1, '강설': 1, '태풍': 1 };
+/* 특보현황 칸: 폭염·강풍·호우·태풍·대설·강설 / 나머지는 특이사항 칸 */
+var WRN_PCP_TYPES = { '폭염': 1, '강풍': 1, '호우': 1, '태풍': 1, '대설': 1, '강설': 1 };
 
 /* 특보 list → 공항별 {pcpMap, othMap} 두 맵으로 분류
    pcpMap : 특보현황 칸 (호우·대설·강설·태풍)
