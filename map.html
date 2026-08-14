@@ -155,6 +155,7 @@
   <button class="hd-btn" onclick="history.back()">← 뒤로</button>
   <h1>✈ 전국 공항 기상 현황</h1>
   <button class="hd-btn" id="refresh-btn" onclick="doRefresh()">↺ 새로고침</button>
+  <button class="hd-btn" id="grid-btn" onclick="toggleGrid()" title="단기예보 격자(NX/NY) 위치 확인">격자확인</button>
   <span id="hd-time"></span>
 </div>
 
@@ -524,6 +525,58 @@
     map.setView(e.marker.getLatLng(), 10);
     setTimeout(() => e.marker.openPopup(), 400);
   }
+
+  /* ── KMA 격자 → 위경도 변환 (단기예보 NX/NY 좌표 검증용) ── */
+  function kmaGridToLatLon(nx, ny) {
+    var RE = 6371.00877, GRID = 5.0;
+    var SLAT1 = 30 * Math.PI / 180, SLAT2 = 60 * Math.PI / 180;
+    var OLON  = 126 * Math.PI / 180, OLAT  = 38 * Math.PI / 180;
+    var XO = 43, YO = 136;
+    var sn = Math.log(Math.cos(SLAT1) / Math.cos(SLAT2)) /
+             Math.log(Math.tan(Math.PI/4 + SLAT2/2) / Math.tan(Math.PI/4 + SLAT1/2));
+    var sf = Math.pow(Math.tan(Math.PI/4 + SLAT1/2), sn) * Math.cos(SLAT1) / sn;
+    var ro = RE / GRID * sf / Math.pow(Math.tan(Math.PI/4 + OLAT/2), sn);
+    var xn = nx - XO, yn = ro - (ny - YO);
+    var ra = Math.sqrt(xn * xn + yn * yn);
+    var theta = Math.atan2(xn, yn);
+    var lat = (2 * Math.atan(Math.pow(RE / GRID * sf / ra, 1 / sn)) - Math.PI / 2) * 180 / Math.PI;
+    var lon = (theta / sn + OLON) * 180 / Math.PI;
+    return [lat, lon];
+  }
+
+  /* ── 격자 오버레이 토글 ── */
+  var _gridLayer = null;
+  window.toggleGrid = function() {
+    var btn = document.getElementById('grid-btn');
+    if (_gridLayer) {
+      map.removeLayer(_gridLayer);
+      _gridLayer = null;
+      btn.style.background = '';
+      return;
+    }
+    var nx = CONFIG.NX, ny = CONFIG.NY;
+    var center = kmaGridToLatLon(nx, ny);
+    // 5km 격자 셀: 위도 ±0.0225°, 경도 ±0.0275° (35°N 기준)
+    var dlat = 0.0225, dlon = 0.0275;
+    var bounds = [
+      [center[0] - dlat, center[1] - dlon],
+      [center[0] + dlat, center[1] + dlon],
+    ];
+    var rect = L.rectangle(bounds, {
+      color: '#e53935', weight: 2, fillColor: '#ef5350', fillOpacity: 0.15,
+    });
+    var dot = L.circleMarker(center, {
+      radius: 6, color: '#e53935', fillColor: '#ff5722', fillOpacity: 0.9, weight: 2,
+    }).bindPopup(
+      `<b>단기예보 격자 중심</b><br>NX=${nx}, NY=${ny}<br>` +
+      `위도 ${center[0].toFixed(4)}°N, 경도 ${center[1].toFixed(4)}°E<br>` +
+      `<span style="color:#555;font-size:11px">격자 크기 5×5km (사각형)</span>`
+    );
+    _gridLayer = L.layerGroup([rect, dot]).addTo(map);
+    map.fitBounds(bounds, { maxZoom: 12, padding: [60, 60] });
+    dot.openPopup();
+    btn.style.background = 'rgba(255,80,80,.45)';
+  };
 
 })();
 </script>

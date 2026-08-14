@@ -36,12 +36,13 @@ async function kmaFetch(endpoint, params, _retry = true) {
 }
 
 /* 단기예보 발표시각 계산 (02,05,08,11,14,17,20,23시)
-   기상청 데이터 준비 시간 약 2~3분 → 5분 버퍼 적용 */
+   기상청 데이터 준비 시간 약 2~3분 → 5분 버퍼 적용
+   미준비 오류는 getPrevBaseTime+재시도 로직으로 대응 (30분 대기 불필요) */
 function getBaseTime() {
   const now      = new Date();
   const totalMin = now.getHours() * 60 + now.getMinutes();
   const baseHours = [2, 5, 8, 11, 14, 17, 20, 23];
-  const BUF = 30; /* 기상청 데이터 준비에 10~20분 소요 → 30분 버퍼로 미준비 오류 방지 */
+  const BUF = 5;
   let base = 23;
   for (const bh of baseHours) {
     if (totalMin >= bh * 60 + BUF) base = bh;
@@ -52,6 +53,24 @@ function getBaseTime() {
   const dateStr = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
   const timeStr = `${pad(base)}00`;
   return { base_date: dateStr, base_time: timeStr };
+}
+
+/* 직전 기준시각 반환 (재시도용: 현재 기준시각 API가 미준비일 때 사용) */
+function getPrevBaseTime(bt) {
+  const baseHours = [2, 5, 8, 11, 14, 17, 20, 23];
+  const curHour   = parseInt(bt.base_time.slice(0, 2), 10);
+  const idx       = baseHours.indexOf(curHour);
+  const pad       = n => String(n).padStart(2, '0');
+  if (idx <= 0) {
+    const d = new Date(
+      parseInt(bt.base_date.slice(0, 4), 10),
+      parseInt(bt.base_date.slice(4, 6), 10) - 1,
+      parseInt(bt.base_date.slice(6, 8), 10)
+    );
+    d.setDate(d.getDate() - 1);
+    return { base_date: `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`, base_time: '2300' };
+  }
+  return { base_date: bt.base_date, base_time: pad(baseHours[idx - 1]) + '00' };
 }
 
 /* 단기예보 파싱 → 날짜별 / 시간별 구조 변환 */
@@ -458,18 +477,29 @@ async function fetchWeatherData(mode) {
   }
 
   try {
-    const { base_date, base_time } = getBaseTime();
+    let { base_date, base_time } = getBaseTime();
+
+    /* 최신 기준시각 시도 → 미준비(빈 응답/오류)이면 이전 기준시각으로 즉시 재시도 */
+    let vilageItems;
+    try {
+      vilageItems = await kmaFetch('getVilageFcst', { base_date, base_time });
+      if (!vilageItems || !vilageItems.length) throw new Error('빈 데이터');
+    } catch (e1) {
+      console.info(`[KMA] ${base_time} 미준비(${e1.message}) → 이전 기준시각 재시도`);
+      const prev = getPrevBaseTime({ base_date, base_time });
+      base_date = prev.base_date;
+      base_time = prev.base_time;
+      vilageItems = await kmaFetch('getVilageFcst', { base_date, base_time });
+    }
+
     const baseTimeDisplay = `${base_date.slice(4,6)}/${base_date.slice(6,8)} ${base_time.slice(0,2)}:00 발표`;
 
-    const [items, warnings, ncst] = await Promise.allSettled([
-      kmaFetch('getVilageFcst', { base_date, base_time }),
+    const [warnings, ncst] = await Promise.allSettled([
       fetchWeatherWarning(),
       fetchUltraNcst(),
     ]);
 
-    if (items.status === 'rejected') throw new Error(items.reason?.message || 'API 실패');
-
-    const { dailyRows, hourlyRows } = parseVilageFcst(items.value);
+    const { dailyRows, hourlyRows } = parseVilageFcst(vilageItems);
     const weatherWarnings = warnings.status === 'fulfilled' ? warnings.value : [];
     const ncstData = ncst.status === 'fulfilled' ? ncst.value : null;
 
