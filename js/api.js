@@ -419,6 +419,8 @@ function _saveCache(data) {
   try {
     localStorage.setItem(_LS_KEY, JSON.stringify({
       baseTimeDisplay: data.baseTimeDisplay,
+      base_date: data.base_date,
+      base_time: data.base_time,
       weatherWarnings: data.weatherWarnings || [],
       hourlyRows: data.hourlyRows.map(r => ({ ...r, time: r.time.toISOString() })),
       dailyRows:  data.dailyRows.map(r =>  ({ ...r, date: r.date.toISOString() })),
@@ -434,6 +436,9 @@ function _loadCache() {
     if (!raw) return null;
     const c = JSON.parse(raw);
     if (Date.now() - c._at > _LS_TTL) return null;
+    /* 기상청 발표 기준시각이 바뀌면 즉시 무효 — 구 예보를 계속 보여주는 문제 방지 */
+    const cur = getBaseTime();
+    if (c.base_date !== cur.base_date || c.base_time !== cur.base_time) return null;
     c.hourlyRows = c.hourlyRows.map(r => ({ ...r, time: new Date(r.time) }));
     c.dailyRows  = c.dailyRows.map(r =>  ({ ...r, date: new Date(r.date) }));
     c.generatedAt = new Date(c._at);
@@ -468,7 +473,7 @@ async function fetchWeatherData(mode) {
     const weatherWarnings = warnings.status === 'fulfilled' ? warnings.value : [];
     const ncstData = ncst.status === 'fulfilled' ? ncst.value : null;
 
-    _lastGoodData  = { dailyRows, hourlyRows, generatedAt: new Date(), isReal: true, baseTimeDisplay, weatherWarnings, ncstData };
+    _lastGoodData  = { dailyRows, hourlyRows, generatedAt: new Date(), isReal: true, baseTimeDisplay, base_date, base_time, weatherWarnings, ncstData };
     _lastGoodStale = false;
     _saveCache(_lastGoodData);
     return _lastGoodData;
