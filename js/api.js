@@ -36,7 +36,8 @@ async function kmaFetch(endpoint, params, _retry = true) {
 }
 
 /* 단기예보 발표시각 계산 (02,05,08,11,14,17,20,23시)
-   기상청 데이터 준비 시간 약 2~3분 → 5분 버퍼 적용 */
+   기상청 데이터 준비 시간 약 2~3분 → 5분 버퍼 적용
+   미준비 오류는 getPrevBaseTime+재시도 로직으로 대응 (30분 대기 불필요) */
 function getBaseTime() {
   const now      = new Date();
   const totalMin = now.getHours() * 60 + now.getMinutes();
@@ -52,6 +53,24 @@ function getBaseTime() {
   const dateStr = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
   const timeStr = `${pad(base)}00`;
   return { base_date: dateStr, base_time: timeStr };
+}
+
+/* 직전 기준시각 반환 (재시도용: 현재 기준시각 API가 미준비일 때 사용) */
+function getPrevBaseTime(bt) {
+  const baseHours = [2, 5, 8, 11, 14, 17, 20, 23];
+  const curHour   = parseInt(bt.base_time.slice(0, 2), 10);
+  const idx       = baseHours.indexOf(curHour);
+  const pad       = n => String(n).padStart(2, '0');
+  if (idx <= 0) {
+    const d = new Date(
+      parseInt(bt.base_date.slice(0, 4), 10),
+      parseInt(bt.base_date.slice(4, 6), 10) - 1,
+      parseInt(bt.base_date.slice(6, 8), 10)
+    );
+    d.setDate(d.getDate() - 1);
+    return { base_date: `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`, base_time: '2300' };
+  }
+  return { base_date: bt.base_date, base_time: pad(baseHours[idx - 1]) + '00' };
 }
 
 /* 단기예보 파싱 → 날짜별 / 시간별 구조 변환 */
@@ -184,13 +203,25 @@ var MARITIME_WARN_TITLES = ['풍랑', '해일', '지진해일'];
 /* KMA API: t6 region이 약어(경남)·전체명(경상남도) 혼용 → 둘 다 체크 */
 var _PROV_ALIAS = { '경남':'경상남도','경북':'경상북도','전남':'전라남도','전북':'전라북도','충남':'충청남도','충북':'충청북도' };
 var _METRO_SET  = { '서울':1,'부산':1,'대구':1,'인천':1,'광주':1,'대전':1,'울산':1,'세종':1 };
-/* isExcl=true: 제외형 '부산(부산동부 제외)' → top만 검색(제외 텍스트 오매칭 방지)
-   isExcl=false: 포함형 '부산(부산중부, 부산서부)' → full 검색(괄호 안 포함 지역 정상 매칭) */
 function _kwInRegion(kw, full, top, isExcl) {
-  /* 도명: 약어(경남)·전체명(경상남도) 혼용 대응 — 둘 중 하나라도 top에 있으면 매칭 */
   if (_PROV_ALIAS[kw]) return top.includes(_PROV_ALIAS[kw]) || top.includes(kw);
   if (_METRO_SET[kw])  return top.includes(kw);
-  return isExcl ? top.includes(kw) : full.includes(kw);
+  if (!isExcl) return full.includes(kw);
+  /* 제외형: '부산(부산동부 제외)' 처리
+     - kw가 제외 목록에 있거나 제외 항목의 하위 단위면 → 불일치
+     - kw가 부모 지역(top)의 하위 구역이고 제외되지 않았으면 → 일치
+     예) kw='부산서부', top='부산', 제외='부산동부' → 일치 ✓
+         kw='부산동부', 제외='부산동부' → 불일치 ✓
+         kw='사천읍',  top='경상남도', 제외='사천' → 불일치('사천읍'.startsWith('사천')) ✓ */
+  var em = full.match(/\(([^)]+제외)\)/);
+  if (em) {
+    var exclPart = em[1].replace(/\s*제외$/, '').trim();
+    var exclList = exclPart.split(/\s*,\s*/);
+    if (exclList.some(function(e) { e = e.trim(); return e && (e === kw || kw.startsWith(e)); })) return false;
+    var topTokens = top.trim().split(/\s+/);
+    if (topTokens.some(function(t) { return t.length >= 2 && kw.startsWith(t); })) return true;
+  }
+  return top.includes(kw);
 }
 /* 괄호 깊이 인식 쉼표 분리 — '부산(부산중부, 부산서부)'를 하나의 세그먼트로 유지 */
 function splitRegion(s) {
@@ -334,18 +365,28 @@ async function _fetchHeatWarns(wrnKeys) {
                   : tp.includes('주의보')  ? '주의보'
                   : tp.includes('예비')    ? '예비특보' : '';
         if (!level) return;
-        var bestMk = { spec: 0, key: '', segment: '' };
+        var bestMk = { spec: 0, key: '', segment: '', isExcl: false };
         splitRegion(region).forEach(function(seg) {
           var mk = matchSpecAndKey(seg.trim());
-          if (mk.spec > bestMk.spec) { bestMk = { spec: mk.spec, key: mk.key, segment: seg.trim() }; }
+          var segIsExcl = /제외/.test(seg);
+          /* 높은 spec 우선, 동점이면 포함형(isExcl=false)이 제외형보다 우선 */
+          if (mk.spec > bestMk.spec || (mk.spec === bestMk.spec && !segIsExcl && bestMk.isExcl)) {
+            bestMk = { spec: mk.spec, key: mk.key, segment: seg.trim(), isExcl: segIsExcl };
+          }
         });
         if (!bestMk.spec) return;
+        /* 제외형 세그먼트: 표시 area는 매칭된 구체 키워드(예: '부산서부')로 대체
+           → '부산(부산동부 제외)' 대신 '부산서부' 표시 */
+        var areaText = (bestMk.isExcl && bestMk.key) ? bestMk.key : bestMk.segment;
         var cur = best['폭염'];
         if (!cur || rankHeat(level) > rankHeat(cur.level) ||
-            (rankHeat(level) === rankHeat(cur.level) && bestMk.spec > cur.spec)) {
+            (rankHeat(level) === rankHeat(cur.level) && (
+              bestMk.spec > cur.spec ||
+              (bestMk.spec === cur.spec && !bestMk.isExcl && cur.isExcl)
+            ))) {
           best['폭염'] = { wrnTitle: '폭염' + level, level: level,
                            tmSt: item.tmSt, tmEd: item.tmEd, tmFc: item.tmFc,
-                           spec: bestMk.spec, area: bestMk.segment };
+                           spec: bestMk.spec, isExcl: bestMk.isExcl, area: areaText };
         }
       });
     });
@@ -397,6 +438,8 @@ function _saveCache(data) {
   try {
     localStorage.setItem(_LS_KEY, JSON.stringify({
       baseTimeDisplay: data.baseTimeDisplay,
+      base_date: data.base_date,
+      base_time: data.base_time,
       weatherWarnings: data.weatherWarnings || [],
       hourlyRows: data.hourlyRows.map(r => ({ ...r, time: r.time.toISOString() })),
       dailyRows:  data.dailyRows.map(r =>  ({ ...r, date: r.date.toISOString() })),
@@ -412,6 +455,9 @@ function _loadCache() {
     if (!raw) return null;
     const c = JSON.parse(raw);
     if (Date.now() - c._at > _LS_TTL) return null;
+    /* 기상청 발표 기준시각이 바뀌면 즉시 무효 — 구 예보를 계속 보여주는 문제 방지 */
+    const cur = getBaseTime();
+    if (c.base_date !== cur.base_date || c.base_time !== cur.base_time) return null;
     c.hourlyRows = c.hourlyRows.map(r => ({ ...r, time: new Date(r.time) }));
     c.dailyRows  = c.dailyRows.map(r =>  ({ ...r, date: new Date(r.date) }));
     c.generatedAt = new Date(c._at);
@@ -431,22 +477,33 @@ async function fetchWeatherData(mode) {
   }
 
   try {
-    const { base_date, base_time } = getBaseTime();
+    let { base_date, base_time } = getBaseTime();
+
+    /* 최신 기준시각 시도 → 미준비(빈 응답/오류)이면 이전 기준시각으로 즉시 재시도 */
+    let vilageItems;
+    try {
+      vilageItems = await kmaFetch('getVilageFcst', { base_date, base_time });
+      if (!vilageItems || !vilageItems.length) throw new Error('빈 데이터');
+    } catch (e1) {
+      console.info(`[KMA] ${base_time} 미준비(${e1.message}) → 이전 기준시각 재시도`);
+      const prev = getPrevBaseTime({ base_date, base_time });
+      base_date = prev.base_date;
+      base_time = prev.base_time;
+      vilageItems = await kmaFetch('getVilageFcst', { base_date, base_time });
+    }
+
     const baseTimeDisplay = `${base_date.slice(4,6)}/${base_date.slice(6,8)} ${base_time.slice(0,2)}:00 발표`;
 
-    const [items, warnings, ncst] = await Promise.allSettled([
-      kmaFetch('getVilageFcst', { base_date, base_time }),
+    const [warnings, ncst] = await Promise.allSettled([
       fetchWeatherWarning(),
       fetchUltraNcst(),
     ]);
 
-    if (items.status === 'rejected') throw new Error(items.reason?.message || 'API 실패');
-
-    const { dailyRows, hourlyRows } = parseVilageFcst(items.value);
+    const { dailyRows, hourlyRows } = parseVilageFcst(vilageItems);
     const weatherWarnings = warnings.status === 'fulfilled' ? warnings.value : [];
     const ncstData = ncst.status === 'fulfilled' ? ncst.value : null;
 
-    _lastGoodData  = { dailyRows, hourlyRows, generatedAt: new Date(), isReal: true, baseTimeDisplay, weatherWarnings, ncstData };
+    _lastGoodData  = { dailyRows, hourlyRows, generatedAt: new Date(), isReal: true, baseTimeDisplay, base_date, base_time, weatherWarnings, ncstData };
     _lastGoodStale = false;
     _saveCache(_lastGoodData);
     return _lastGoodData;

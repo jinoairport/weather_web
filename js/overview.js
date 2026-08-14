@@ -807,8 +807,8 @@ function updateWarnLabel(msgs) {
   if (el) el.textContent = buildWarnLabel(msgs);
 }
 
-/* 강수 관련 특보 타입 (특보현황 칸) */
-var WRN_PCP_TYPES = { '호우': 1, '대설': 1, '강설': 1, '태풍': 1 };
+/* 특보현황 칸: 폭염·강풍·호우·태풍·대설·강설 / 나머지는 특이사항 칸 */
+var WRN_PCP_TYPES = { '폭염': 1, '강풍': 1, '호우': 1, '태풍': 1, '대설': 1, '강설': 1 };
 
 /* 특보 list → 공항별 {pcpMap, othMap} 두 맵으로 분류
    pcpMap : 특보현황 칸 (호우·대설·강설·태풍)
@@ -826,13 +826,22 @@ function wrnLevelRank(lv) {
 var _PROV_ALIAS = { '경남':'경상남도','경북':'경상북도','전남':'전라남도','전북':'전라북도','충남':'충청남도','충북':'충청북도' };
 /* 광역시/특별시 이름 — 다른 도의 괄호 목록 안에도 동명이시로 등장할 수 있어 최상위(괄호 밖) 매칭만 허용 */
 var _METRO_SET  = { '서울':1,'부산':1,'대구':1,'인천':1,'광주':1,'대전':1,'울산':1,'세종':1 };
-/* isExcl=true: 제외형 '부산(부산동부 제외)' → top만 검색(제외 텍스트 오매칭 방지)
-   isExcl=false: 포함형 '부산(부산중부, 부산서부)' → full 검색(괄호 안 포함 지역 정상 매칭) */
 function _kwInRegion(kw, full, top, isExcl) {
-  /* 도명: 약어(경남)·전체명(경상남도) 혼용 대응 — 둘 중 하나라도 top에 있으면 매칭 */
   if (_PROV_ALIAS[kw]) return top.includes(_PROV_ALIAS[kw]) || top.includes(kw);
   if (_METRO_SET[kw])  return top.includes(kw);
-  return isExcl ? top.includes(kw) : full.includes(kw);
+  if (!isExcl) return full.includes(kw);
+  /* 제외형: '부산(부산동부 제외)' 처리 — api.js _kwInRegion와 동일 로직
+     - kw가 제외 목록에 있거나 제외 항목의 하위 단위면 불일치
+     - kw가 부모 지역(top)의 하위 구역이고 제외되지 않았으면 일치 */
+  var em = full.match(/\(([^)]+제외)\)/);
+  if (em) {
+    var exclPart = em[1].replace(/\s*제외$/, '').trim();
+    var exclList = exclPart.split(/\s*,\s*/);
+    if (exclList.some(function(e) { e = e.trim(); return e && (e === kw || kw.startsWith(e)); })) return false;
+    var topTokens = top.trim().split(/\s+/);
+    if (topTokens.some(function(t) { return t.length >= 2 && kw.startsWith(t); })) return true;
+  }
+  return top.includes(kw);
 }
 /* 괄호 깊이 인식 쉼표 분리 — '부산(부산중부, 부산서부)'를 하나의 세그먼트로 유지 */
 function splitRegion(s) {

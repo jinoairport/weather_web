@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>공항 기상 현황 지도</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; background: #f0f4f8; }
+
+    #hd {
+      position: fixed; top: 0; left: 0; right: 0; height: 46px;
+      background: #1b3a6b; color: #fff;
+      display: flex; align-items: center; padding: 0 14px; gap: 8px; z-index: 1000;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+    }
+    #hd h1 { font-size: 14px; font-weight: 600; letter-spacing: .3px; }
+    .hd-btn {
+      background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.25);
+      color: #fff; padding: 3px 10px; border-radius: 4px; cursor: pointer;
+      font-size: 12px; font-family: inherit; flex-shrink: 0;
+    }
+    .hd-btn:hover { background: rgba(255,255,255,.28); }
+    #hd-time { margin-left: auto; font-size: 11px; opacity: .65; white-space: nowrap; }
+
+    #map { position: absolute; top: 46px; left: 0; right: 0; bottom: 0; }
+
+    /* ── 마커 공통 ── */
+    .apm {
+      background: #fff;
+      border: 2px solid #1b3a6b;
+      border-radius: 8px;
+      text-align: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,.22);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: transform .12s, box-shadow .12s;
+      position: relative;
+      overflow: hidden;
+    }
+    .apm:hover { transform: scale(1.07); box-shadow: 0 4px 14px rgba(0,0,0,.3); }
+    .apm.rain  { border-color: #1565c0; background: #e3f2fd; }
+    .apm.snow  { border-color: #7b1fa2; background: #f3e5f5; }
+
+    /* 특보 — 마커 테두리 강조 */
+    .apm.warn-중대경보 { border-color: #7b0000 !important; border-width: 3px; }
+    .apm.warn-경보     { border-color: #c62828 !important; border-width: 3px; }
+    .apm.warn-주의보   { border-color: #e65100 !important; border-width: 3px; }
+    .apm.warn-예비특보 { border-color: #1565c0 !important; border-width: 2px; }
+
+    /* 특보 상단 스트립 */
+    .apm-warn-strip {
+      display: block;
+      color: #fff; font-weight: 700; text-align: center;
+      letter-spacing: .4px; line-height: 1.3;
+    }
+    .wl-중대경보 { background: #7b0000; }
+    .wl-경보     { background: #c62828; }
+    .wl-주의보   { background: #e65100; }
+    .wl-예비특보 { background: #1565c0; }
+    .apm-full .apm-warn-strip { font-size: 9px; padding: 2px 4px; margin: -4px -7px 3px; }
+    .apm-mid  .apm-warn-strip { font-size: 8px; padding: 1px 3px; margin: -3px -6px 2px; }
+    .apm-mini .apm-warn-strip { display: none; }
+
+    /* 강수/강설량 */
+    .apm-pcp     { font-size: 9px; color: #0d47a1; font-weight: 700; margin-left: 3px; }
+    .apm-pcp.sno { color: #6a1fa0; }
+
+    /* 풀사이즈 (zoom ≥ 9) */
+    .apm-full  { padding: 4px 7px 3px; }
+    .apm-full .apm-icon { font-size: 20px; line-height: 1.15; }
+    .apm-full .apm-tmp  { font-size: 13px; font-weight: 700; }
+    .apm-full .apm-name { font-size: 10px; color: #555; margin-top: 1px; }
+
+    /* 중간 (zoom 7-8): 이름 숨김 */
+    .apm-mid  { padding: 3px 6px 2px; }
+    .apm-mid .apm-icon { font-size: 16px; line-height: 1.1; }
+    .apm-mid .apm-tmp  { font-size: 11px; font-weight: 700; }
+    .apm-mid .apm-name { display: none; }
+
+    /* 미니 (zoom ≤ 6): 이모지만 */
+    .apm-mini { padding: 2px 4px; border-radius: 6px; }
+    .apm-mini .apm-icon { font-size: 13px; line-height: 1; }
+    .apm-mini .apm-tmp  { display: none; }
+    .apm-mini .apm-name { display: none; }
+
+    .apm-load { font-size: 18px; opacity: .4; }
+
+    /* ── 팝업 ── */
+    .leaflet-popup-content-wrapper { border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,.2); }
+    .leaflet-popup-content { font-family: 'Malgun Gothic', sans-serif; margin: 12px 14px; min-width: 172px; }
+    .pp-head {
+      font-size: 14px; font-weight: 700; color: #1b3a6b;
+      border-bottom: 1px solid #e0e6f0; padding-bottom: 7px; margin-bottom: 8px;
+      display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+    }
+    .pp-code { font-size: 10px; color: #999; font-weight: 400; }
+    .pp-warn-tag {
+      font-size: 10px; font-weight: 700; color: #fff;
+      background: #c62828; padding: 1px 5px; border-radius: 3px; margin-left: auto;
+    }
+    .pp-row  { display: flex; justify-content: space-between; font-size: 12px; margin: 4px 0; }
+    .pp-lbl  { color: #888; }
+    .pp-val  { font-weight: 600; color: #222; }
+    .pp-go {
+      display: block; margin-top: 11px; text-align: center;
+      background: #1b3a6b; color: #fff; padding: 6px;
+      border-radius: 6px; text-decoration: none; font-size: 12px;
+      transition: background .15s;
+    }
+    .pp-go:hover { background: #2a5298; }
+
+    /* ── 로딩 ── */
+    #overlay {
+      position: fixed; top: 46px; left: 0; right: 0; bottom: 0;
+      background: rgba(240,244,248,.72); backdrop-filter: blur(2px);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      z-index: 800; gap: 10px;
+    }
+    #overlay p { font-size: 13px; color: #445; }
+    .spinner {
+      width: 34px; height: 34px; border: 3px solid #cbd5e1;
+      border-top-color: #1b3a6b; border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── 범례 ── */
+    #legend {
+      position: fixed; bottom: 16px; left: 12px; z-index: 900;
+      background: rgba(255,255,255,.97); border: 1.5px solid #b0bfd4;
+      border-radius: 8px; padding: 9px 13px; font-size: 11px; color: #334;
+      box-shadow: 0 3px 12px rgba(0,0,0,.2); min-width: 118px;
+    }
+    #legend b { display: block; margin-bottom: 5px; margin-top: 6px; color: #1b3a6b; font-size: 11.5px; }
+    #legend b:first-child { margin-top: 0; }
+    .leg-row { display: flex; align-items: center; gap: 7px; margin: 3px 0; }
+    .leg-dot { width: 13px; height: 13px; border-radius: 50%; border: 2.5px solid; flex-shrink: 0; }
+    .leg-badge {
+      color: #fff; font-size: 10px; font-weight: 700;
+      padding: 2px 5px; border-radius: 3px; flex-shrink: 0;
+    }
+    .leg-badge.lv-중대경보 { background: #7b0000; }
+    .leg-badge.lv-경보     { background: #c62828; }
+    .leg-badge.lv-주의보   { background: #e65100; }
+    .leg-badge.lv-예비특보 { background: #1565c0; }
+    .leg-pcp { font-size: 11px; font-weight: 700; color: #0d47a1; }
+    .leg-sno { color: #6a1fa0; }
+  </style>
+</head>
+<body>
+
+<div id="hd">
+  <button class="hd-btn" onclick="history.back()">← 뒤로</button>
+  <h1>✈ 전국 공항 기상 현황</h1>
+  <button class="hd-btn" id="refresh-btn" onclick="doRefresh()">↺ 새로고침</button>
+  <button class="hd-btn" id="grid-btn" onclick="toggleGrid()" title="단기예보 격자(NX/NY) 위치 확인">격자확인</button>
+  <span id="hd-time"></span>
+</div>
+
+<div id="map"></div>
+
+<div id="overlay">
+  <div class="spinner"></div>
+  <p id="overlay-msg">공항 기상 데이터 불러오는 중…</p>
+</div>
+
+<div id="legend">
+  <b>날씨</b>
+  <div class="leg-row"><div class="leg-dot" style="border-color:#1b3a6b;background:#fff"></div> 맑음/흐림</div>
+  <div class="leg-row"><div class="leg-dot" style="border-color:#1565c0;background:#c8e6fa"></div> 비/소나기</div>
+  <div class="leg-row"><div class="leg-dot" style="border-color:#7b1fa2;background:#e8d5f5"></div> 눈</div>
+  <b>특보</b>
+  <div class="leg-row"><span class="leg-badge lv-경보">경보</span> 경보 발효</div>
+  <div class="leg-row"><span class="leg-badge lv-주의보">주의보</span> 주의보 발효</div>
+  <div class="leg-row"><span class="leg-badge lv-예비특보">예비</span> 예비특보</div>
+  <b>강수</b>
+  <div class="leg-row"><span class="leg-pcp">▼</span> 강우량 (mm/h)</div>
+  <div class="leg-row"><span class="leg-pcp leg-sno">❄</span> 강설량 (mm/h)</div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="js/apikey.js"></script>
+<script src="js/config.js"></script>
+<script src="js/data.js"></script>
+<script>
+(async function () {
+
+  /* ── 지도 초기화 ── */
+  const map = L.map('map', {
+    center: [36.3, 127.9], zoom: 7,
+    zoomControl: true,
+  });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://osm.org/copyright">OpenStreetMap</a>',
+    maxZoom: 14,
+  }).addTo(map);
+
+  /* ── 공항 위경도 ── */
+  const COORDS = {
+    GMP: [37.5583, 126.7943],
+    CJU: [33.5113, 126.4929],
+    PUS: [35.1795, 128.9382],
+    TAE: [35.8942, 128.6588],
+    CJJ: [36.7172, 127.4993],
+    KWJ: [35.1264, 126.8088],
+    RSU: [34.8423, 127.6168],
+    MWX: [34.9913, 126.3826],
+    KPO: [35.9879, 129.4199],
+    KUV: [35.9038, 126.6159],
+    WJU: [37.4380, 127.9595],
+    HIN: [35.0886, 128.0706],
+    YNY: [38.0613, 128.6694],
+    USN: [35.5935, 129.3520],
+  };
+
+  /* ── 날씨 헬퍼 (data.js WX와 통일) ── */
+  function wxEmoji(pty, sky) {
+    if (pty === 7) return '🌨';
+    if (pty === 6) return '🌨';
+    if (pty === 5) return '🌦';
+    if (pty === 4) return '🌦';
+    if (pty === 3) return '❄️';
+    if (pty === 2) return '🌨';
+    if (pty === 1) return '🌧';
+    if (sky === 4) return '☁️';
+    if (sky === 3) return '⛅';
+    return '☀️';
+  }
+  function wxLabel(pty, sky) {
+    if (pty === 7) return '눈날림';
+    if (pty === 6) return '빗방울/눈날림';
+    if (pty === 5) return '빗방울';
+    if (pty === 4) return '소나기';
+    if (pty === 3) return '눈';
+    if (pty === 2) return '비/눈';
+    if (pty === 1) return '비';
+    if (sky === 4) return '흐림';
+    if (sky === 3) return '구름많음';
+    return '맑음';
+  }
+  function markerClass(pty) {
+    if (pty === 3 || pty === 7 || pty === 6) return ' snow';
+    if (pty >= 1) return ' rain';
+    return '';
+  }
+  function tmpColor(t) {
+    if (t >= 35) return '#c62828';
+    if (t >= 30) return '#e65100';
+    if (t <=  0) return '#1565c0';
+    return '#1b3a6b';
+  }
+
+  /* ── 특보 wrnKeys 매칭 — 최우선 특보 정보 반환 (없으면 null) ── */
+  const MARITIME_TITLES = ['풍랑', '해일', '지진해일'];
+  const LEVEL_RANK = { '중대경보': 4, '경보': 3, '주의보': 2, '예비특보': 1 };
+  const TYPE_RANK  = { '태풍':9,'호우':8,'폭설':7,'대설':7,'강풍':6,'폭염':5,'한파':4,'건조':3,'뇌우':2,'안개':1 };
+
+  function aptGetWarnInfo(apt, warnList) {
+    if (!warnList || !warnList.length) return null;
+    var keys = (apt.wrnKeys && apt.wrnKeys.length) ? apt.wrnKeys : [apt.wrnCity || ''];
+    var best = null, bestRank = -1;
+    warnList.forEach(function(w) {
+      var title = w.wrnTitle || '';
+      if (MARITIME_TITLES.some(function(t) { return title.includes(t); })) return;
+      var region = [w.t6, w.t2, w.area, w.areaFc].filter(Boolean).join(' ');
+      var matches = keys.some(function(kw) {
+        if (Array.isArray(kw)) return kw.every(function(k) { return k && region.includes(k); });
+        return kw && region.includes(kw);
+      });
+      if (!matches) return;
+      var level = title.includes('중대경보') ? '중대경보'
+                : title.includes('경보')    ? '경보'
+                : title.includes('주의보')  ? '주의보'
+                : title.includes('예비')    ? '예비특보' : '';
+      if (!level) return;
+      var type = title.replace('중대경보','').replace('경보','').replace('주의보','')
+                      .replace('예비특보','').replace('특보','').trim();
+      var rank = (LEVEL_RANK[level] || 0) * 100 + (TYPE_RANK[type] || 0);
+      if (rank > bestRank) { bestRank = rank; best = { type, level, title }; }
+    });
+    return best;
+  }
+
+  /* ── 줌 레벨 → 마커 크기 ── */
+  function sizeClass(zoom) {
+    if (zoom >= 9) return 'apm-full';
+    if (zoom >= 7) return 'apm-mid';
+    return 'apm-mini';
+  }
+  function iconSize(zoom) {
+    if (zoom >= 9) return [66, 70];
+    if (zoom >= 7) return [50, 52];
+    return [36, 36];
+  }
+
+  /* ── 마커 HTML ── */
+  function iconHtml(apt, wx, zoom, warnInfo) {
+    const sc  = sizeClass(zoom);
+    const pty = wx?.PTY || 0, sky = wx?.SKY || 1;
+    const tmp = wx?.T1H !== undefined ? Math.round(wx.T1H) : null;
+    const cls = markerClass(pty);
+    const col = tmp !== null ? tmpColor(tmp) : '#1b3a6b';
+
+    /* 강수/강설량 표시 (zoom≥7에서만) */
+    var pcpHtml = '';
+    if (wx && pty >= 1 && zoom >= 7) {
+      var rn1 = wx.RN1;
+      if (rn1 && rn1 !== '강수없음') {
+        var isSnow = (pty === 2 || pty === 3 || pty === 6 || pty === 7);
+        var mm = (rn1 === '1mm미만') ? '&lt;1' : (typeof rn1 === 'number' ? rn1.toFixed(1) : String(rn1));
+        pcpHtml = `<span class="apm-pcp${isSnow ? ' sno' : ''}">${isSnow ? '❄' : '▼'}${mm}</span>`;
+      }
+    }
+
+    /* 특보 스트립 + 테두리 강조 */
+    var warnCls = '', warnStrip = '';
+    if (warnInfo) {
+      var lvLabel = warnInfo.level === '예비특보' ? '(예비)' : warnInfo.level === '중대경보' ? '중대경보' : warnInfo.level;
+      warnCls   = ` warn-${warnInfo.level}`;
+      warnStrip = `<div class="apm-warn-strip wl-${warnInfo.level}">${warnInfo.type}${lvLabel}</div>`;
+    }
+
+    if (!wx) {
+      return `<div class="apm ${sc}${warnCls}">${warnStrip}<div class="apm-load">✈</div><div class="apm-name">${apt.name}</div></div>`;
+    }
+    return `<div class="apm ${sc}${cls}${warnCls}">
+      ${warnStrip}
+      <div class="apm-icon">${wxEmoji(pty, sky)}</div>
+      <div class="apm-tmp" style="color:${col}">${tmp !== null ? tmp + '°' : '-'}</div>
+      <div class="apm-name">${apt.name}${pcpHtml}</div>
+    </div>`;
+  }
+
+  /* ── 팝업 HTML ── */
+  function popupHtml(apt, wx, hasWarn, warnList) {
+    const pty  = wx?.PTY || 0, sky = wx?.SKY || 1;
+    const tmp  = wx?.T1H  !== undefined ? Math.round(wx.T1H)  + '°C' : '-';
+    const wsd  = wx?.WSD  !== undefined ? wx.WSD + ' m/s' : '-';
+    const reh  = wx?.REH  !== undefined ? wx.REH + '%' : '-';
+    const rn1  = wx?.RN1  && wx.RN1 !== '강수없음' ? wx.RN1 : '-';
+    const cond = wxLabel(pty, sky);
+
+    // 이 공항에 해당하는 특보 제목 추출
+    let warnTag = '';
+    if (hasWarn && warnList) {
+      var keys = (apt.wrnKeys && apt.wrnKeys.length) ? apt.wrnKeys : [apt.wrnCity || ''];
+      var matched = warnList.filter(function(w) {
+        var title = w.wrnTitle || '';
+        if (MARITIME_TITLES.some(function(t) { return title.includes(t); })) return false;
+        var region = [w.t6, w.t2, w.area, w.areaFc].filter(Boolean).join(' ');
+        return keys.some(function(kw) {
+          if (Array.isArray(kw)) return kw.every(function(k) { return k && region.includes(k); });
+          return kw && region.includes(kw);
+        });
+      });
+      if (matched.length) {
+        var titles = [...new Set(matched.map(w => w.wrnTitle || '').filter(Boolean))];
+        warnTag = `<span class="pp-warn-tag">${titles.slice(0, 2).join(', ')}</span>`;
+      }
+    }
+
+    return `
+      <div class="pp-head">${wxEmoji(pty, sky)} ${apt.name}공항 <span class="pp-code">${apt.code}</span>${warnTag}</div>
+      <div class="pp-row"><span class="pp-lbl">날씨</span><span class="pp-val">${cond}</span></div>
+      <div class="pp-row"><span class="pp-lbl">기온</span><span class="pp-val">${tmp}</span></div>
+      <div class="pp-row"><span class="pp-lbl">풍속</span><span class="pp-val">${wsd}</span></div>
+      <div class="pp-row"><span class="pp-lbl">습도</span><span class="pp-val">${reh}</span></div>
+      <div class="pp-row"><span class="pp-lbl">강수량</span><span class="pp-val">${rn1}</span></div>
+      <a class="pp-go" href="index.html?apt=${apt.code}">상세 기상정보 →</a>`;
+  }
+
+  /* ── 초단기예보 fetch ── */
+  async function fetchNcst(nx, ny, key) {
+    const now = new Date();
+    if (now.getMinutes() < 30) now.setHours(now.getHours() - 1);
+    const p = n => String(n).padStart(2, '0');
+    const base_date = now.getFullYear() + p(now.getMonth()+1) + p(now.getDate());
+    const base_time = p(now.getHours()) + '30';
+
+    const url = new URL('https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtFcst');
+    url.searchParams.set('serviceKey', key);
+    url.searchParams.set('pageNo',     '1');
+    url.searchParams.set('numOfRows',  '60');
+    url.searchParams.set('dataType',   'JSON');
+    url.searchParams.set('base_date',  base_date);
+    url.searchParams.set('base_time',  base_time);
+    url.searchParams.set('nx', nx);
+    url.searchParams.set('ny', ny);
+
+    const res = await fetch(url.toString());
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    if (json?.response?.header?.resultCode !== '00') return null;
+    const items = json?.response?.body?.items?.item;
+    if (!items) return null;
+    const arr = Array.isArray(items) ? items : [items];
+    const nearestTime = [...new Set(arr.map(i => i.fcstTime))].sort()[0];
+    const obj = {};
+    arr.filter(i => i.fcstTime === nearestTime).forEach(i => {
+      const val = isNaN(i.fcstValue) ? i.fcstValue : parseFloat(i.fcstValue);
+      if (val !== -999) obj[i.category] = val;
+    });
+    return obj;
+  }
+
+  /* ── 기상특보 전국 목록 fetch ── */
+  async function fetchAllWarnings(key) {
+    try {
+      const url = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
+      url.searchParams.set('serviceKey', key);
+      url.searchParams.set('pageNo',    '1');
+      url.searchParams.set('numOfRows', '100');
+      url.searchParams.set('dataType',  'JSON');
+      const res = await fetch(url.toString());
+      if (!res.ok) return [];
+      const json = await res.json();
+      if (json?.response?.header?.resultCode !== '00') return [];
+      const items = json?.response?.body?.items?.item;
+      if (!items) return [];
+      return Array.isArray(items) ? items : [items];
+    } catch(e) { return []; }
+  }
+
+  /* ── 마커 아이콘 팩토리 ── */
+  await CONFIG.ready;
+  const key = CONFIG.API_KEY.includes('%') ? decodeURIComponent(CONFIG.API_KEY) : CONFIG.API_KEY;
+
+  function mkIcon(html, zoom) {
+    const [w, h] = iconSize(zoom);
+    return L.divIcon({ html, className: '', iconSize: [w, h], iconAnchor: [w/2, h/2], popupAnchor: [0, -h/2-4] });
+  }
+
+  /* ── 마커 초기 생성 ── */
+  const entries = {};
+  AIRPORTS.forEach(apt => {
+    const coords = COORDS[apt.code];
+    if (!coords) return;
+    const zoom   = map.getZoom();
+    const marker = L.marker(coords, { icon: mkIcon(iconHtml(apt, null, zoom, false), zoom) }).addTo(map);
+    marker.bindPopup('', { maxWidth: 230 });
+    marker.on('click', () => {
+      const pp = entries[apt.code]?.pp || '<div style="padding:8px;color:#888;font-size:12px;">로딩 중…</div>';
+      marker.getPopup().setContent(pp).openOn(map);
+    });
+    entries[apt.code] = { apt, marker, pp: null, wx: null, hasWarn: false };
+  });
+
+  /* ── 데이터 로드 함수 (초기 + 자동갱신 공용) ── */
+  let _refreshTimer = null;
+  let _warnList     = [];
+
+  async function loadAll(showOverlay) {
+    if (showOverlay) {
+      document.getElementById('overlay').style.display = 'flex';
+      document.getElementById('overlay-msg').textContent = '공항 기상 데이터 불러오는 중…';
+    }
+    const btn = document.getElementById('refresh-btn');
+    if (btn) btn.disabled = true;
+
+    try {
+      // 특보 + 전체 공항 날씨 병렬 fetch
+      const [warnResult, ...wxResults] = await Promise.allSettled([
+        fetchAllWarnings(key),
+        ...AIRPORTS.filter(a => COORDS[a.code]).map(apt =>
+          fetchNcst(apt.nx, apt.ny, key)
+            .then(wx => ({ code: apt.code, wx }))
+            .catch(() => ({ code: apt.code, wx: null }))
+        ),
+      ]);
+
+      _warnList = warnResult.status === 'fulfilled' ? warnResult.value : [];
+
+      const zoom = map.getZoom();
+      wxResults.forEach(r => {
+        if (r.status !== 'fulfilled') return;
+        const { code, wx } = r.value;
+        const e = entries[code];
+        if (!e) return;
+        e.wx       = wx;
+        e.warnInfo = aptGetWarnInfo(e.apt, _warnList);
+        e.marker.setIcon(mkIcon(iconHtml(e.apt, wx, zoom, e.warnInfo), zoom));
+        e.pp = popupHtml(e.apt, wx, !!e.warnInfo, _warnList);
+      });
+
+      updateTime();
+    } finally {
+      document.getElementById('overlay').style.display = 'none';
+      if (btn) btn.disabled = false;
+      // 30분 후 자동갱신
+      clearTimeout(_refreshTimer);
+      _refreshTimer = setTimeout(() => loadAll(false), 30 * 60 * 1000);
+    }
+  }
+
+  /* ── 새로고침 버튼 핸들러 ── */
+  window.doRefresh = function() { loadAll(true); };
+
+  /* ── 초기 로드 ── */
+  await loadAll(true);
+
+  /* ── 줌 변경 시 마커 크기 업데이트 ── */
+  map.on('zoomend', () => {
+    const zoom = map.getZoom();
+    Object.values(entries).forEach(e => {
+      e.marker.setIcon(mkIcon(iconHtml(e.apt, e.wx, zoom, e.warnInfo), zoom));
+    });
+  });
+
+  /* ── 현재 시각 표시 (1분마다 갱신) ── */
+  function updateTime() {
+    const now = new Date();
+    const p   = n => String(n).padStart(2, '0');
+    document.getElementById('hd-time').textContent =
+      `기준: ${now.getMonth()+1}/${now.getDate()} ${p(now.getHours())}:${p(now.getMinutes())}`;
+  }
+  setInterval(updateTime, 60 * 1000);
+
+  /* ── URL 파라미터로 공항 자동 선택 ── */
+  const params    = new URLSearchParams(location.search);
+  const focusCode = params.get('apt');
+  if (focusCode && entries[focusCode]) {
+    const e = entries[focusCode];
+    map.setView(e.marker.getLatLng(), 10);
+    setTimeout(() => e.marker.openPopup(), 400);
+  }
+
+  /* ── KMA 격자 → 위경도 변환 (단기예보 NX/NY 좌표 검증용) ── */
+  function kmaGridToLatLon(nx, ny) {
+    var RE = 6371.00877, GRID = 5.0;
+    var SLAT1 = 30 * Math.PI / 180, SLAT2 = 60 * Math.PI / 180;
+    var OLON  = 126 * Math.PI / 180, OLAT  = 38 * Math.PI / 180;
+    var XO = 43, YO = 136;
+    var sn = Math.log(Math.cos(SLAT1) / Math.cos(SLAT2)) /
+             Math.log(Math.tan(Math.PI/4 + SLAT2/2) / Math.tan(Math.PI/4 + SLAT1/2));
+    var sf = Math.pow(Math.tan(Math.PI/4 + SLAT1/2), sn) * Math.cos(SLAT1) / sn;
+    var ro = RE / GRID * sf / Math.pow(Math.tan(Math.PI/4 + OLAT/2), sn);
+    var xn = nx - XO, yn = ro - (ny - YO);
+    var ra = Math.sqrt(xn * xn + yn * yn);
+    var theta = Math.atan2(xn, yn);
+    var lat = (2 * Math.atan(Math.pow(RE / GRID * sf / ra, 1 / sn)) - Math.PI / 2) * 180 / Math.PI;
+    var lon = (theta / sn + OLON) * 180 / Math.PI;
+    return [lat, lon];
+  }
+
+  /* ── 격자 오버레이 토글 ── */
+  var _gridLayer = null;
+  window.toggleGrid = function() {
+    var btn = document.getElementById('grid-btn');
+    if (_gridLayer) {
+      map.removeLayer(_gridLayer);
+      _gridLayer = null;
+      btn.style.background = '';
+      return;
+    }
+    var nx = CONFIG.NX, ny = CONFIG.NY;
+    var center = kmaGridToLatLon(nx, ny);
+    // 5km 격자 셀: 위도 ±0.0225°, 경도 ±0.0275° (35°N 기준)
+    var dlat = 0.0225, dlon = 0.0275;
+    var bounds = [
+      [center[0] - dlat, center[1] - dlon],
+      [center[0] + dlat, center[1] + dlon],
+    ];
+    var rect = L.rectangle(bounds, {
+      color: '#e53935', weight: 2, fillColor: '#ef5350', fillOpacity: 0.15,
+    });
+    var dot = L.circleMarker(center, {
+      radius: 6, color: '#e53935', fillColor: '#ff5722', fillOpacity: 0.9, weight: 2,
+    }).bindPopup(
+      `<b>단기예보 격자 중심</b><br>NX=${nx}, NY=${ny}<br>` +
+      `위도 ${center[0].toFixed(4)}°N, 경도 ${center[1].toFixed(4)}°E<br>` +
+      `<span style="color:#555;font-size:11px">격자 크기 5×5km (사각형)</span>`
+    );
+    _gridLayer = L.layerGroup([rect, dot]).addTo(map);
+    map.fitBounds(bounds, { maxZoom: 12, padding: [60, 60] });
+    dot.openPopup();
+    btn.style.background = 'rgba(255,80,80,.45)';
+  };
+
+})();
+</script>
+</body>
+</html>
