@@ -41,7 +41,7 @@ function getBaseTime() {
   const now      = new Date();
   const totalMin = now.getHours() * 60 + now.getMinutes();
   const baseHours = [2, 5, 8, 11, 14, 17, 20, 23];
-  const BUF = 5;
+  const BUF = 30; /* 기상청 데이터 준비에 10~20분 소요 → 30분 버퍼로 미준비 오류 방지 */
   let base = 23;
   for (const bh of baseHours) {
     if (totalMin >= bh * 60 + BUF) base = bh;
