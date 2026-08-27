@@ -469,6 +469,51 @@ function _loadCache() {
 let _lastGoodData  = _loadCache();
 let _lastGoodStale = false; // ⚠ 표시 중복 방지 플래그
 
+/* 누적강수량 원장 — 단기예보는 예보이므로 기준시각(02·05·08…)이 넘어가면
+   이미 지나간 시간대 값이 API 응답에서 통째로 사라진다.
+   그래서 매 호출마다 "지금까지 확인한 지난 시간대" 강수량을 로컬에 영구 기록해두고,
+   그 값으로 자정~현재 누적을 계산한다 (다음 기준시각으로 넘어가도 유지). */
+const _PCP_LEDGER_KEY = 'kma_pcp_ledger';
+
+function _dateKey(d) {
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
+}
+
+function _loadPcpLedger() {
+  try {
+    const raw = localStorage.getItem(_PCP_LEDGER_KEY);
+    if (!raw) return {};
+    const c = JSON.parse(raw);
+    return c.date === _dateKey(new Date()) ? c.hours : {};
+  } catch (e) { return {}; }
+}
+
+function _savePcpLedger(hours) {
+  try {
+    localStorage.setItem(_PCP_LEDGER_KEY, JSON.stringify({ date: _dateKey(new Date()), hours }));
+  } catch (e) {}
+}
+
+/* hourlyRows 중 오늘 날짜이면서 이미 지나갔거나 현재 시간인 항목을 원장에 기록 */
+function recordPastPcp(hourlyRows) {
+  const now = new Date();
+  const todayStr = _dateKey(now);
+  const hours = _loadPcpLedger();
+  hourlyRows.forEach(r => {
+    if (_dateKey(r.time) === todayStr && r.time <= now) {
+      hours[r.time.getHours()] = r.pcp || 0;
+    }
+  });
+  _savePcpLedger(hours);
+}
+
+/* 오늘 0시~현재까지 누적강수량 (원장 기반 — 예보 기준시각 전환에도 유실되지 않음) */
+function getAccumPcpToday() {
+  const hours = _loadPcpLedger();
+  return Object.values(hours).reduce((s, v) => s + Math.max(0, v || 0), 0);
+}
+
 /* 메인 데이터 페치 */
 async function fetchWeatherData(mode) {
   if (!CONFIG.API_KEY) {
@@ -500,6 +545,7 @@ async function fetchWeatherData(mode) {
     ]);
 
     const { dailyRows, hourlyRows } = parseVilageFcst(vilageItems);
+    recordPastPcp(hourlyRows);
     const weatherWarnings = warnings.status === 'fulfilled' ? warnings.value : [];
     const ncstData = ncst.status === 'fulfilled' ? ncst.value : null;
 

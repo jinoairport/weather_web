@@ -328,10 +328,9 @@ function updateRainSummary(data) {
   setText('v-rain-period', rainPeriodStr);
 
   // 누적강수량: 오늘 0시 ~ 현재 시점까지 실제 경과 시간만 합산
-  const pastRows = data.hourlyRows.filter(r =>
-    r.time.toDateString() === today.toDateString() && r.time <= today
-  );
-  const accum = pastRows.reduce((s, r) => s + Math.max(0, r.pcp || 0), 0);
+  // (단기예보는 기준시각이 넘어가면 지난 시간대 값이 API 응답에서 사라지므로,
+  //  hourlyRows 대신 매 호출마다 기록해둔 원장(getAccumPcpToday)을 사용)
+  const accum = getAccumPcpToday();
   setText('v-accum', accum >= 1 ? `${Math.round(accum)}mm` : '없음');
 
   // 예상강수량: 현재 이후 미래 강수량 자동 합산
