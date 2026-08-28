@@ -253,8 +253,8 @@ function pcpRange(mm) {
     const lo = Math.floor(mm / 10) * 10;
     return `${lo}~${lo + 10}mm`;
   } else {
-    const lo = Math.floor(mm / 50) * 50;
-    return `${lo}~${lo + 50}mm`;
+    const lo = Math.floor(mm / 20) * 20;
+    return `${lo}~${lo + 20}mm`;
   }
 }
 
