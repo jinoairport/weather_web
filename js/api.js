@@ -475,7 +475,7 @@ let _lastGoodStale = false; // ⚠ 표시 중복 방지 플래그
    시간대별로 로컬에 영구 기록해두고, 그 값으로 자정~현재 누적을 계산한다.
    초단기실황은 과거 특정 시각도 조회 가능하므로, 처음 켤 때 그날 놓친 시간대를
    순차 조회해 채워넣는다(백필) — 하루 중 언제 접속해도 실제값 기준으로 정확해진다. */
-const _PCP_LEDGER_KEY = 'kma_pcp_ledger';
+const _PCP_LEDGER_KEY = 'kma_pcp_ledger_v2'; // v2: 예보(PCP) 기반 구버전 원장과 값 형식이 달라 키 분리
 
 function _dateKey(d) {
   const pad = n => String(n).padStart(2, '0');
