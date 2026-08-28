@@ -469,10 +469,12 @@ function _loadCache() {
 let _lastGoodData  = _loadCache();
 let _lastGoodStale = false; // ⚠ 표시 중복 방지 플래그
 
-/* 누적강수량 원장 — 단기예보는 예보이므로 기준시각(02·05·08…)이 넘어가면
-   이미 지나간 시간대 값이 API 응답에서 통째로 사라진다.
-   그래서 매 호출마다 "지금까지 확인한 지난 시간대" 강수량을 로컬에 영구 기록해두고,
-   그 값으로 자정~현재 누적을 계산한다 (다음 기준시각으로 넘어가도 유지). */
+/* 누적강수량 원장 — 단기예보(PCP)는 "예보값"이라 실제로 내린 양과 다를 수 있고,
+   기준시각이 넘어가면 지난 시간대 값이 API 응답에서 사라지기까지 한다.
+   그래서 실제 관측값인 초단기실황(getUltraSrtNcst)의 RN1(시간당 실측 강수량)을
+   시간대별로 로컬에 영구 기록해두고, 그 값으로 자정~현재 누적을 계산한다.
+   초단기실황은 과거 특정 시각도 조회 가능하므로, 처음 켤 때 그날 놓친 시간대를
+   순차 조회해 채워넣는다(백필) — 하루 중 언제 접속해도 실제값 기준으로 정확해진다. */
 const _PCP_LEDGER_KEY = 'kma_pcp_ledger';
 
 function _dateKey(d) {
@@ -495,20 +497,37 @@ function _savePcpLedger(hours) {
   } catch (e) {}
 }
 
-/* hourlyRows 중 오늘 날짜이면서 이미 지나갔거나 현재 시간인 항목을 원장에 기록 */
-function recordPastPcp(hourlyRows) {
-  const now = new Date();
-  const todayStr = _dateKey(now);
-  const hours = _loadPcpLedger();
-  hourlyRows.forEach(r => {
-    if (_dateKey(r.time) === todayStr && r.time <= now) {
-      hours[r.time.getHours()] = r.pcp || 0;
-    }
-  });
-  _savePcpLedger(hours);
+/* 초단기실황 특정 시각(정시30분) 조회 → 실측 RN1(mm) 반환 */
+async function fetchObservedRn1(base_date, base_time) {
+  const items = await kmaFetch('getUltraSrtNcst', { base_date, base_time });
+  const arr = Array.isArray(items) ? items : [items];
+  let rn1Raw;
+  arr.forEach(i => { if (i.category === 'RN1') rn1Raw = i.obsrValue; });
+  if (rn1Raw === undefined) throw new Error('RN1 없음');
+  return rn1Raw === '강수없음' ? 0
+       : rn1Raw === '1mm 미만' ? 0.5
+       : parseFloat(rn1Raw) || 0;
 }
 
-/* 오늘 0시~현재까지 누적강수량 (원장 기반 — 예보 기준시각 전환에도 유실되지 않음) */
+/* 오늘 0시~현재 사이 원장에 없는 시간대만 순차 백필 (실패 시 그 이후는 중단, 다음 호출 때 재시도) */
+async function backfillPcpLedger() {
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const dateStr = _dateKey(now);
+  const lastObsHour = now.getMinutes() < 30 ? now.getHours() - 1 : now.getHours();
+  const hours = _loadPcpLedger();
+  for (let h = 0; h <= lastObsHour; h++) {
+    if (hours[h] !== undefined) continue;
+    try {
+      hours[h] = await fetchObservedRn1(dateStr, pad(h) + '30');
+      _savePcpLedger(hours);
+    } catch (e) {
+      break;
+    }
+  }
+}
+
+/* 오늘 0시~현재까지 누적강수량 (초단기실황 실측 기반) */
 function getAccumPcpToday() {
   const hours = _loadPcpLedger();
   return Object.values(hours).reduce((s, v) => s + Math.max(0, v || 0), 0);
@@ -545,7 +564,7 @@ async function fetchWeatherData(mode) {
     ]);
 
     const { dailyRows, hourlyRows } = parseVilageFcst(vilageItems);
-    recordPastPcp(hourlyRows);
+    try { await backfillPcpLedger(); } catch (e) { console.warn('[누적강수량 백필 실패]', e.message); }
     const weatherWarnings = warnings.status === 'fulfilled' ? warnings.value : [];
     const ncstData = ncst.status === 'fulfilled' ? ncst.value : null;
 
