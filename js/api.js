@@ -237,94 +237,68 @@ function splitRegion(s) {
   return segs;
 }
 
-/* 특보/예비특보 공통 필터 — wrnKeys 배열 내 배열(AND 조건) 지원
-   dedup 기준:
-   ① 더 구체적인 키워드로 매칭된 것 우선 (AND > 긴 단일 > 짧은 단일)
-   ② 구체성 동률이면 높은 단계 우선 (중대경보>경보>주의보>예비) — 시/군 명시된 주의보는 spec 2배로 자동 우선 */
-function filterByCity(arr, keys) {
-  var keyArr = Array.isArray(keys) ? keys : [keys];
+/* getWthrWrnMsg는 stnId 없이 호출하면 응답이 비어 있고, 있어도 wrnTitle/area 같은
+   정형 필드가 없다 — 실제로는 t6 한 필드에 그 지방청의 "현재 활성인 특보 전체"가
+   "o 종류 : 지역목록" 줄들로 뭉쳐서 온다. 그래서 활성 stnId를 모두 순회해 각 지방청의
+   가장 최근 통보문 하나(tmFc 기준)만 가져와 t6를 파싱해야 한다 (overview.js와 동일 방식). */
+var WRN_TYPES = ['태풍', '폭설', '대설', '호우', '강풍', '풍랑', '폭염', '한파', '건조', '황사', '뇌우', '안개'];
 
-  function calcSpec(targets) {
-    var top = targets.replace(/\([^()]*\)/g, '').replace(/[()]/g, '');
-    /* 복합 문자열(t6+t2+area 결합)에 isExcl 적용 불가 — 다른 특보 "제외" 텍스트로
-       인해 포함형 지역 매칭이 깨질 수 있음 → isExcl=false 고정(full 검색)
-       세그먼트별 isExcl은 matchSpecAndKey(폭염), aptMatchSpec(전체현황)에서 처리 */
-    return keyArr.reduce(function(max, kw) {
-      var s = 0;
-      if (Array.isArray(kw)) {
-        s = kw.every(function(k) { return k && _kwInRegion(k, targets, top, false); })
-          ? kw.reduce(function(sum, k) { return sum + k.length; }, 0)
-          : 0;
-      } else {
-        if (!kw || !_kwInRegion(kw, targets, top, false)) { return max; }
-        /* 도명약어/광역시 = 광역 매칭(coarse) → kw.length
-           일반 시·군·구·읍 = 세부 매칭(fine) → kw.length * 2 */
-        s = (_PROV_ALIAS[kw] || _METRO_SET[kw]) ? kw.length : kw.length * 2;
-      }
-      return Math.max(max, s);
-    }, 0);
-  }
-
-  var matchedWithSpec = [];
-  arr.forEach(function(w) {
-    var title = w.wrnTitle || '';
-    if (MARITIME_WARN_TITLES.some(function(t) { return title.includes(t); })) return;
-    /* t6=현재 특보 지역목록, t2=지역 요약, area/areaFc=지역 필드
-       wrnStnm(발표기관 "부산지방기상청")·wrnTitle은 제외 → '부산' 키워드에 경남 경보가 오매칭되는 근본 원인 차단 */
-    var targets = [w.t6, w.t2, w.area, w.areaFc].filter(Boolean).join(' ');
-    var spec = calcSpec(targets);
-    if (spec > 0) matchedWithSpec.push({ w: w, spec: spec });
+/* t6 텍스트를 "종류 : 지역목록" 청크로 분리 → [{type, level, region}] (해상전용 제외) */
+function parseT6(t6) {
+  var result = [];
+  ('\n' + (t6 || '')).split(/\no\s+/).forEach(function(chunk) {
+    chunk = chunk.trim().replace(/\n\s*/g, ' ');
+    var m = chunk.match(/^([가-힣]+)\s*:\s*(.+)/);
+    if (!m) return;
+    var titlePart = m[1].trim(), region = m[2].trim();
+    var type = '';
+    WRN_TYPES.forEach(function(k) { if (!type && titlePart.includes(k)) type = k; });
+    if (!type || MARITIME_WARN_TITLES.includes(type)) return;
+    /* 중대경보를 먼저 체크해야 '경보' 포함 여부 오판을 막음 */
+    var level = titlePart.includes('중대경보') ? '중대경보'
+              : titlePart.includes('경보')    ? '경보'
+              : titlePart.includes('주의보')  ? '주의보'
+              : titlePart.includes('예비')    ? '예비특보' : '';
+    if (!level) return;
+    result.push({ type: type, level: level, region: region });
   });
-
-  /* rank: 예비특보=1, 주의보=2, 경보=3, 중대경보=4 */
-  var best = {};
-  matchedWithSpec.forEach(function(item) {
-    var title = item.w.wrnTitle || '';
-    /* 중대경보 먼저 제거 → '폭염중대경보' → '폭염' 올바르게 추출 */
-    var type  = title.replace('중대경보', '').replace('예비특보', '').replace('경보', '').replace('주의보', '').replace('예비', '').replace('특보', '').trim();
-    var rank  = title.includes('예비') ? 1 : title.includes('주의보') ? 2 : title.includes('중대경보') ? 4 : title.includes('경보') ? 3 : 0;
-    var ex    = best[type];
-    /* 더 구체적인 매칭이 우선; 동점이면 높은 단계 유지 (시/군명 주의보는 spec 2배로 자동 우선) */
-    if (!ex || item.spec > ex._spec || (item.spec === ex._spec && rank > ex._rank)) {
-      best[type] = Object.assign({}, item.w, { _spec: item.spec, _rank: rank });
-    }
-  });
-  return Object.values(best).map(function(w) {
-    var r = Object.assign({}, w); delete r._spec; delete r._rank; return r;
-  });
+  return result;
 }
 
-/* 폭염특보 전용 조회 — getWthrWrnList → getWthrWrnMsg(stnId) 경유
-   stnId 미지정 getWthrWrnMsg 응답에 폭염이 누락되는 경우를 보완 */
-async function _fetchHeatWarns(wrnKeys) {
-  var keyArr = Array.isArray(wrnKeys) ? wrnKeys : [wrnKeys];
+function wrnLevelRank(lv) {
+  return lv === '중대경보' ? 4 : lv === '경보' ? 3 : lv === '주의보' ? 2 : lv === '예비특보' ? 1 : 0;
+}
 
-  /* spec + 매칭된 대표 키워드 반환 (area 표시용) */
-  function matchSpecAndKey(region) {
-    var top = region.replace(/\([^()]*\)/g, '').replace(/[()]/g, '');
-    var isExcl = /제외/.test(region);
-    var bestSpec = 0, bestKey = '';
+/* 지역 문자열에서 선택 공항(wrnKeys) 매칭 spec + 대표 표시 지역명 계산 (세그먼트 단위 검사) */
+function matchCityInRegion(keyArr, region) {
+  var best = { spec: 0, area: '' };
+  splitRegion(region).forEach(function(seg) {
+    var top = seg.replace(/\([^()]*\)/g, '').replace(/[()]/g, '').trim();
+    var isExcl = /제외/.test(seg);
+    var segSpec = 0, segKey = '';
     keyArr.forEach(function(kw) {
       var s = 0, key = '';
       if (Array.isArray(kw)) {
-        s = kw.every(function(k){ return k && _kwInRegion(k, region, top, isExcl); })
-           ? kw.reduce(function(sum, k){ return sum + k.length; }, 0) : 0;
+        s = kw.every(function(k) { return k && _kwInRegion(k, seg, top, isExcl); })
+          ? kw.reduce(function(sum, k) { return sum + k.length; }, 0) : 0;
         key = kw[0] || '';
       } else {
-        if (!kw || !_kwInRegion(kw, region, top, isExcl)) return;
+        if (!kw || !_kwInRegion(kw, seg, top, isExcl)) return;
         s = (_PROV_ALIAS[kw] || _METRO_SET[kw]) ? kw.length : kw.length * 2;
         key = kw;
       }
-      if (s > bestSpec) { bestSpec = s; bestKey = key; }
+      if (s > segSpec) { segSpec = s; segKey = key; }
     });
-    return { spec: bestSpec, key: bestKey };
-  }
+    if (segSpec > best.spec) {
+      /* 제외형 세그먼트: 표시 area는 매칭된 구체 키워드로 대체 (예: '부산(부산동부 제외)' → '부산서부') */
+      best = { spec: segSpec, area: (isExcl && segKey) ? segKey : seg.trim() };
+    }
+  });
+  return best;
+}
 
-  function rankHeat(lv) {
-    return lv === '중대경보' ? 4 : lv === '경보' ? 3 : lv === '주의보' ? 2 : lv === '예비특보' ? 1 : 0;
-  }
-
-  /* 1) 활성 stnId 목록 */
+/* 활성 stnId별 최신 통보문(t6) 조회 → 전국 특보 원자료 배열 [{type,level,region,tmFc}] */
+async function fetchWrnList() {
   var lu = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnList');
   lu.searchParams.set('serviceKey', CONFIG.API_KEY);
   lu.searchParams.set('pageNo',    '1');
@@ -333,101 +307,57 @@ async function _fetchHeatWarns(wrnKeys) {
   var lj = await fetch(lu.toString()).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
   var lItems = lj && lj.response && lj.response.body && lj.response.body.items && lj.response.body.items.item;
   if (!lItems) return [];
-  var stnIds = Array.from(new Set((Array.isArray(lItems) ? lItems : [lItems]).map(function(i){ return i.stnId; }).filter(Boolean)));
-  if (!stnIds.length) return [];
+  if (!Array.isArray(lItems)) lItems = [lItems];
 
-  /* 2) 각 stnId별 getWthrWrnMsg → t6 파싱 → 폭염 매칭 */
-  var best = {};  /* '폭염' → { level, wrnTitle, tmSt, tmEd, spec } */
+  /* stnId별 가장 최근 tmFc — getWthrWrnMsg 호출 시 정확히 그 통보문만 지정해서 가져옴 */
+  var stnLatest = {};
+  lItems.forEach(function(w) {
+    var sid = String(w.stnId || ''), tfc = String(w.tmFc || '');
+    if (sid && (!stnLatest[sid] || tfc > stnLatest[sid])) stnLatest[sid] = tfc;
+  });
 
-  await Promise.allSettled(stnIds.map(async function(stnId) {
+  var all = [];
+  await Promise.allSettled(Object.keys(stnLatest).map(async function(stnId) {
     var mu = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
     mu.searchParams.set('serviceKey', CONFIG.API_KEY);
-    mu.searchParams.set('pageNo',    '1');
-    mu.searchParams.set('numOfRows', '50');
-    mu.searchParams.set('dataType',  'JSON');
-    mu.searchParams.set('stnId', stnId);
+    mu.searchParams.set('stnId',      stnId);
+    mu.searchParams.set('tmFc',       stnLatest[stnId]);
+    mu.searchParams.set('numOfRows',  '100');
+    mu.searchParams.set('dataType',   'JSON');
     var mj = await fetch(mu.toString()).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
     var mItems = mj && mj.response && mj.response.body && mj.response.body.items && mj.response.body.items.item;
     if (!mItems) return;
-    (Array.isArray(mItems) ? mItems : [mItems]).forEach(function(item) {
-      var t6 = item.t6 || '';
-      if (!t6.includes('폭염')) return;
-      /* t6 한 섹션이 여러 줄에 걸칠 수 있음 → '\no ' 단위로 청크 분리 후
-         내부 줄바꿈을 공백으로 합쳐서 파싱 (overview.js parseT6와 동일 방식) */
-      ('\n' + t6).split(/\no\s+/).forEach(function(chunk) {
-        chunk = chunk.trim().replace(/\n\s*/g, ' ');
-        if (!chunk.includes('폭염')) return;
-        var m = chunk.match(/^([가-힣]+)\s*:\s*(.+)/);
-        if (!m || !m[1].includes('폭염')) return;
-        var tp = m[1].trim(), region = m[2].trim();
-        var level = tp.includes('중대경보') ? '중대경보'
-                  : tp.includes('경보')    ? '경보'
-                  : tp.includes('주의보')  ? '주의보'
-                  : tp.includes('예비')    ? '예비특보' : '';
-        if (!level) return;
-        var bestMk = { spec: 0, key: '', segment: '', isExcl: false };
-        splitRegion(region).forEach(function(seg) {
-          var mk = matchSpecAndKey(seg.trim());
-          var segIsExcl = /제외/.test(seg);
-          /* 높은 spec 우선, 동점이면 포함형(isExcl=false)이 제외형보다 우선 */
-          if (mk.spec > bestMk.spec || (mk.spec === bestMk.spec && !segIsExcl && bestMk.isExcl)) {
-            bestMk = { spec: mk.spec, key: mk.key, segment: seg.trim(), isExcl: segIsExcl };
-          }
-        });
-        if (!bestMk.spec) return;
-        /* 제외형 세그먼트: 표시 area는 매칭된 구체 키워드(예: '부산서부')로 대체
-           → '부산(부산동부 제외)' 대신 '부산서부' 표시 */
-        var areaText = (bestMk.isExcl && bestMk.key) ? bestMk.key : bestMk.segment;
-        var cur = best['폭염'];
-        if (!cur || rankHeat(level) > rankHeat(cur.level) ||
-            (rankHeat(level) === rankHeat(cur.level) && (
-              bestMk.spec > cur.spec ||
-              (bestMk.spec === cur.spec && !bestMk.isExcl && cur.isExcl)
-            ))) {
-          best['폭염'] = { wrnTitle: '폭염' + level, level: level,
-                           tmSt: item.tmSt, tmEd: item.tmEd, tmFc: item.tmFc,
-                           spec: bestMk.spec, isExcl: bestMk.isExcl, area: areaText };
-        }
-      });
+    if (!Array.isArray(mItems)) mItems = [mItems];
+    mItems.sort(function(a, b) { return (+(b.tmSeq || 0)) - (+(a.tmSeq || 0)); });
+    var top = mItems[0];
+    parseT6(top && top.t6).forEach(function(w) {
+      all.push({ type: w.type, level: w.level, region: w.region, tmFc: (top && top.tmFc) || stnLatest[stnId] });
     });
   }));
-
-  return Object.values(best).map(function(w) {
-    return { wrnTitle: w.wrnTitle, tmSt: w.tmSt, tmEd: w.tmEd, tmFc: w.tmFc, area: w.area };
-  });
+  return all;
 }
 
-/* 기상청 기상특보 조회
-   일반 특보(stnId 없음)와 폭염특보(stnId별) 병렬 조회 후 병합
-   폭염은 stnId별 조회가 더 정확하므로 regular 결과의 폭염을 대체함 */
+/* 기상청 기상특보 조회 — 활성 stnId 전체의 최신 통보문을 파싱해 선택 공항 키워드와
+   매칭되는 특보만 유형별로(최고 단계 우선, 동률이면 더 구체적인 지역 우선) 추려서 반환 */
 async function fetchWeatherWarning() {
-  const city = getCurrentWrnKeys();
+  var keyArr = getCurrentWrnKeys();
+  var list;
+  try { list = await fetchWrnList(); } catch (e) { list = []; }
 
-  async function regularFetch() {
-    try {
-      const url = new URL('https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg');
-      url.searchParams.set('serviceKey', CONFIG.API_KEY);
-      url.searchParams.set('pageNo',    '1');
-      url.searchParams.set('numOfRows', '100');
-      url.searchParams.set('dataType',  'JSON');
-      const res = await fetch(url.toString());
-      if (!res.ok) return [];
-      const json = await res.json();
-      if (json?.response?.header?.resultCode !== '00') return [];
-      const items = json?.response?.body?.items?.item;
-      if (!items) return [];
-      const arr = Array.isArray(items) ? items : [items];
-      /* 폭염은 _fetchHeatWarns에서 더 정확하게 처리하므로 제외 */
-      return filterByCity(arr, city).filter(function(w){ return !(w.wrnTitle || '').includes('폭염'); });
-    } catch(e) { return []; }
-  }
+  var best = {};
+  list.forEach(function(w) {
+    var m = matchCityInRegion(keyArr, w.region);
+    if (!m.spec) return;
+    var cur = best[w.type];
+    if (!cur || wrnLevelRank(w.level) > wrnLevelRank(cur.level) ||
+        (wrnLevelRank(w.level) === wrnLevelRank(cur.level) && m.spec > cur.spec)) {
+      best[w.type] = { type: w.type, level: w.level, tmFc: w.tmFc, spec: m.spec, area: m.area };
+    }
+  });
 
-  const [regular, heat] = await Promise.all([
-    regularFetch(),
-    _fetchHeatWarns(city).catch(function(){ return []; }),
-  ]);
-
-  return regular.concat(heat);
+  return Object.values(best).map(function(w) {
+    return { wrnTitle: w.type + w.level, tmFc: w.tmFc, area: w.area };
+  });
 }
 
 /* localStorage 캐시 — 페이지 재로드 시에도 이전 데이터 복원 */
