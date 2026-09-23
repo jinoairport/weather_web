@@ -230,24 +230,62 @@ function getWeekendRange(today) {
   return { sat, sun };
 }
 
+/* 연도별 음력공휴일 + 대체공휴일 (설날·추석 연휴가 여기 섞여 있음 — 양력 고정일은 FIXED_HOLIDAYS 참조) */
+const LUNAR_HOLIDAYS_BY_YEAR = {
+  2025: [[1,28],[1,29],[1,30],[5,5],[10,6],[10,7],[10,8]],
+  2026: [[2,16],[2,17],[2,18],[3,2],[5,24],[9,24],[9,25],[9,26],[9,27]],
+  2027: [[1,27],[1,28],[1,29],[5,13],[10,19],[10,20],[10,21]],
+};
+const FIXED_HOLIDAYS = [[1,1],[3,1],[5,5],[6,6],[8,15],[10,3],[10,9],[12,25]];
+
 /* ---- 공휴일 판별 ---- */
 function isHoliday(date) {
   const y = date.getFullYear();
   const m = date.getMonth() + 1;
   const d = date.getDate();
 
-  // 양력 고정 법정공휴일
-  const FIXED = [[1,1],[3,1],[5,5],[6,6],[8,15],[10,3],[10,9],[12,25]];
-  if (FIXED.some(([fm,fd]) => fm===m && fd===d)) return true;
+  if (FIXED_HOLIDAYS.some(([fm,fd]) => fm===m && fd===d)) return true;
 
-  // 연도별 음력공휴일 + 대체공휴일
-  const BY_YEAR = {
-    2025: [[1,28],[1,29],[1,30],[5,5],[10,6],[10,7],[10,8]],
-    2026: [[2,16],[2,17],[2,18],[3,2],[5,24],[9,30],[10,1],[10,2]],
-    2027: [[1,27],[1,28],[1,29],[5,13],[10,19],[10,20],[10,21]],
-  };
-  const extra = BY_YEAR[y] || [];
+  const extra = LUNAR_HOLIDAYS_BY_YEAR[y] || [];
   return extra.some(([em,ed]) => em===m && ed===d);
+}
+
+/* ---- 설날/추석 연휴 블록 판별 ----
+   LUNAR_HOLIDAYS_BY_YEAR에는 대체공휴일(삼일절 등) 단일 날짜도 섞여 있으므로,
+   연속 3일 이상 붙어있는 날짜만 "명절 연휴"로 간주해 단일 대체공휴일과 구분한다. */
+function _lunarHolidayClusters(year) {
+  const dates = (LUNAR_HOLIDAYS_BY_YEAR[year] || [])
+    .map(([m, d]) => new Date(year, m - 1, d))
+    .sort((a, b) => a - b);
+  const clusters = [];
+  let cur = [];
+  dates.forEach(d => {
+    if (cur.length && (d - cur[cur.length - 1]) / 86400000 === 1) cur.push(d);
+    else { if (cur.length) clusters.push(cur); cur = [d]; }
+  });
+  if (cur.length) clusters.push(cur);
+  return clusters.filter(c => c.length >= 3);
+}
+
+/* today 기준 lookaheadDays 이내에 걸쳐 있거나 다가오는 명절 연휴 블록 반환 */
+function getUpcomingHolidayBlock(today, lookaheadDays) {
+  lookaheadDays = lookaheadDays || 14;
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const horizon = new Date(todayStart); horizon.setDate(horizon.getDate() + lookaheadDays);
+
+  const clusters = [
+    ..._lunarHolidayClusters(today.getFullYear()),
+    ..._lunarHolidayClusters(today.getFullYear() + 1),
+  ];
+  for (const c of clusters) {
+    const from = c[0], to = c[c.length - 1];
+    if (to >= todayStart && from <= horizon) {
+      const mo = from.getMonth() + 1;
+      const name = (mo === 1 || mo === 2) ? '설날' : (mo === 9 || mo === 10) ? '추석' : '';
+      return { from, to, name };
+    }
+  }
+  return null;
 }
 
 /* ---- 목업 데이터 생성 ---- */
