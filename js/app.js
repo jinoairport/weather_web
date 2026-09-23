@@ -84,8 +84,9 @@ function renderAll() {
 
   if (APP_DATA.dailyRows) renderDailyTable(APP_DATA.dailyRows);
   renderHourlyTable(APP_DATA.hourlyRows, hourlyStep, currentMode);
-  if (currentMode === 'normal') { updateNormalSummary(APP_DATA); updateHolidayBulletin(APP_DATA); }
-  if (currentMode === 'rain')   updateRainSummary(APP_DATA);
+  if (currentMode === 'normal')  updateNormalSummary(APP_DATA);
+  if (currentMode === 'rain')    updateRainSummary(APP_DATA);
+  if (currentMode === 'holiday') updateHolidaySection(APP_DATA);
 }
 
 /* 강우 모드 자동감지 — 향후 72시간 내 비(pty>0) 또는 강수확률 50% 이상 */
@@ -111,19 +112,26 @@ function applyMode(mode) {
     const el = document.getElementById(id);
     if (el) el.classList.toggle('active', mode === 'rain');
   });
-  document.getElementById('sec-normal').style.display     = mode === 'normal' ? '' : 'none';
-  document.getElementById('sec-rain').style.display       = mode === 'rain'   ? '' : 'none';
-  document.getElementById('sec-rain-extra').style.display = mode === 'rain'   ? '' : 'none';
+  ['btn-holiday','mb-btn-holiday'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('active', mode === 'holiday');
+  });
+  document.getElementById('sec-normal').style.display     = mode === 'normal'  ? '' : 'none';
+  document.getElementById('sec-rain').style.display       = mode === 'rain'    ? '' : 'none';
+  document.getElementById('sec-rain-extra').style.display = mode === 'rain'    ? '' : 'none';
+  document.getElementById('sec-holiday').style.display    = mode === 'holiday' ? '' : 'none';
 }
 
 /* ===================== 모드 전환 (사용자 직접 선택) ===================== */
 function setMode(mode) {
   modeManual = true;  // 이후 자동감지 비활성
   applyMode(mode);
+  if (mode !== 'holiday') restoreAirportTitle(); // 연휴 모드에서 바뀐 제목 원복
   if (APP_DATA) {
     renderHourlyTable(APP_DATA.hourlyRows, hourlyStep, currentMode);
-    if (currentMode === 'normal') { updateNormalSummary(APP_DATA); updateHolidayBulletin(APP_DATA); }
-    if (currentMode === 'rain')   updateRainSummary(APP_DATA);
+    if (currentMode === 'normal')  updateNormalSummary(APP_DATA);
+    if (currentMode === 'rain')    updateRainSummary(APP_DATA);
+    if (currentMode === 'holiday') updateHolidaySection(APP_DATA);
   } else {
     refreshData();
   }
@@ -336,18 +344,23 @@ function holidaySkyPhrase(sky, pty) {
   return '대체로 맑겠으며';
 }
 
-async function updateHolidayBulletin(data) {
+async function updateHolidaySection(data) {
   const el = document.getElementById('holiday-bulletin');
   if (!el) return;
 
   const today = new Date();
   const block = getUpcomingHolidayBlock(today, 14);
-  if (!block) { el.style.display = 'none'; el.textContent = ''; return; }
+  if (!block) { el.textContent = '다가오는 명절 연휴가 없습니다.'; return; }
 
-  const fFull  = d => `'${String(d.getFullYear()).slice(2)}. ${d.getMonth()+1}. ${d.getDate()}.`;
-  const fShort = d => `${d.getMonth()+1}. ${d.getDate()}.`;
-  const titleEl = document.getElementById('sec-normal-title');
-  if (titleEl) titleEl.textContent = `□ ${block.name}연휴 (${fFull(block.from)} ~ ${fShort(block.to)}) 기상개황`;
+  const fShort = d => `${d.getMonth()+1}.${d.getDate()}`;
+  const code = localStorage.getItem('airport_code') || 'PUS';
+  const apt  = AIRPORTS.find(a => a.code === code);
+  if (apt) {
+    const dateRange = `${fShort(block.from)}~${fShort(block.to)}`;
+    setText('doc-title-el', `${apt.name}공항 ${block.name}연휴(${dateRange}) 기상정보`);
+    const ctEl = document.getElementById('ctrl-title-el');
+    if (ctEl) ctEl.textContent = `${apt.name}공항 ${block.name}연휴(${dateRange}) 기상정보 시스템`;
+  }
 
   const days = [];
   for (let d = new Date(block.from); d <= block.to; d.setDate(d.getDate() + 1)) days.push(new Date(d));
@@ -402,7 +415,6 @@ async function updateHolidayBulletin(data) {
   });
 
   el.textContent = lines.join('\n');
-  el.style.display = '';
 }
 
 /* ===================== 예상강수량 범위 표현 ===================== */
@@ -744,6 +756,16 @@ function setAirport(code) {
 
   const panel = document.getElementById('airport-panel');
   if (panel) panel.style.display = 'none';
+}
+
+/* 연휴 모드에서 바뀐 페이지 제목을 현재 선택된 공항 기준으로 원복 */
+function restoreAirportTitle() {
+  const code = localStorage.getItem('airport_code') || 'PUS';
+  const apt  = AIRPORTS.find(a => a.code === code);
+  if (!apt) return;
+  setText('doc-title-el', `${apt.name}공항 기상정보`);
+  const ctEl = document.getElementById('ctrl-title-el');
+  if (ctEl) ctEl.textContent = `${apt.name}공항 기상정보 시스템`;
 }
 
 function toggleAirportPanel() {
