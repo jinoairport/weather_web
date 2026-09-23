@@ -84,7 +84,7 @@ function renderAll() {
 
   if (APP_DATA.dailyRows) renderDailyTable(APP_DATA.dailyRows);
   renderHourlyTable(APP_DATA.hourlyRows, hourlyStep, currentMode);
-  if (currentMode === 'normal') updateNormalSummary(APP_DATA);
+  if (currentMode === 'normal') { updateNormalSummary(APP_DATA); updateHolidayBulletin(APP_DATA); }
   if (currentMode === 'rain')   updateRainSummary(APP_DATA);
 }
 
@@ -122,7 +122,7 @@ function setMode(mode) {
   applyMode(mode);
   if (APP_DATA) {
     renderHourlyTable(APP_DATA.hourlyRows, hourlyStep, currentMode);
-    if (currentMode === 'normal') updateNormalSummary(APP_DATA);
+    if (currentMode === 'normal') { updateNormalSummary(APP_DATA); updateHolidayBulletin(APP_DATA); }
     if (currentMode === 'rain')   updateRainSummary(APP_DATA);
   } else {
     refreshData();
@@ -243,6 +243,166 @@ function updateNormalSummary(data) {
       vRain.textContent = '없음';
     }
   }
+}
+
+/* ===================== 명절 연휴 기상개황 통보문 =====================
+   설날·추석처럼 연휴가 단기예보(3일) 범위를 넘어가면, 넘어가는 날짜만
+   중기예보(getMidLandFcst/getMidTa, D+4~D+10)로 보완해 일자별 서술형 문장으로 표시.
+   기존 강수량/기온/특보 표는 그대로 두고 그 위에 통보문 문단만 추가한다. */
+
+/* 중기예보 발표시각 계산 — 06:00/18:00 기준 (overview.js와 동일 로직) */
+function getMidTmFc() {
+  const now = new Date();
+  const p2  = n => String(n).padStart(2, '0');
+  const d   = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const h = now.getHours(), m = now.getMinutes();
+  let base;
+  if (h > 18 || (h === 18 && m >= 10)) base = 18;
+  else if (h > 6 || (h === 6 && m >= 10)) base = 6;
+  else { d.setDate(d.getDate() - 1); base = 18; }
+  const ds = `${d.getFullYear()}${p2(d.getMonth()+1)}${p2(d.getDate())}`;
+  return { tmFc: ds + p2(base) + '00', issuanceDate: d, base };
+}
+
+async function kmaFetchMidRaw(endpoint, regId, tmFc) {
+  const url = new URL(`https://apis.data.go.kr/1360000/MidFcstInfoService/${endpoint}`);
+  const key = CONFIG.API_KEY.includes('%') ? decodeURIComponent(CONFIG.API_KEY) : CONFIG.API_KEY;
+  url.searchParams.set('serviceKey', key);
+  url.searchParams.set('numOfRows', '10');
+  url.searchParams.set('pageNo',    '1');
+  url.searchParams.set('dataType',  'JSON');
+  url.searchParams.set('regId',     regId);
+  url.searchParams.set('tmFc',      tmFc);
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const json = await res.json();
+  if (json?.response?.header?.resultCode !== '00') throw new Error('MID ' + json?.response?.header?.resultCode);
+  const item = json.response.body.items.item;
+  if (!item) return null;
+  return Array.isArray(item) ? item[0] : item;
+}
+
+/* 중기예보 날씨 문자열 → {pty, sky} (overview.js wfToWx와 동일 로직) */
+function wfToWxLocal(wf) {
+  if (!wf) return { pty: 0, sky: 1 };
+  const s = String(wf).trim();
+  if (s.includes('소나기'))                        return { pty: 4, sky: 4 };
+  if (s.includes('비/눈') || s.includes('눈/비'))  return { pty: 2, sky: 4 };
+  if (s.includes('눈'))                            return { pty: 3, sky: 4 };
+  if (s.includes('비') || s.includes('강수'))       return { pty: 1, sky: 4 };
+  if (s.includes('흐림'))                          return { pty: 0, sky: 4 };
+  if (s.includes('구름많'))                        return { pty: 0, sky: 3 };
+  if (s.includes('구름조'))                        return { pty: 0, sky: 2 };
+  return { pty: 0, sky: 1 };
+}
+
+/* 현재 선택 공항의 중기예보 조회 — 최신 발표 미준비 시 이전 발표로 재시도 */
+async function fetchMidTermForCurrentAirport() {
+  const code = localStorage.getItem('airport_code') || 'PUS';
+  const apt  = AIRPORTS.find(a => a.code === code) || AIRPORTS.find(a => a.code === 'PUS');
+  const mt   = getMidTmFc();
+
+  async function fetchBoth(tmFc) {
+    const [fcstItem, taItem] = await Promise.all([
+      kmaFetchMidRaw('getMidLandFcst', apt.midFcst, tmFc).catch(() => null),
+      kmaFetchMidRaw('getMidTa',   apt.midTa,   tmFc).catch(() => null),
+    ]);
+    return { fcstItem, taItem };
+  }
+
+  let result = await fetchBoth(mt.tmFc);
+  let issuanceDate = mt.issuanceDate;
+  if (!result.taItem) {
+    const p2 = n => String(n).padStart(2, '0');
+    const prevD = new Date(mt.issuanceDate);
+    const prevBase = mt.base === 18 ? 6 : (prevD.setDate(prevD.getDate() - 1), 18);
+    const prevTmFc = `${prevD.getFullYear()}${p2(prevD.getMonth()+1)}${p2(prevD.getDate())}${p2(prevBase)}00`;
+    const retry = await fetchBoth(prevTmFc);
+    if (retry.taItem) { result = retry; issuanceDate = prevD; }
+  }
+
+  return { fcstItem: result.fcstItem, taItem: result.taItem, issuanceDate };
+}
+
+/* 날씨상태(pty/sky) → 서술형 어구 */
+function holidaySkyPhrase(sky, pty) {
+  if (pty === 4) return '소나기가 오는 곳이 있겠으며';
+  if (pty === 3) return '눈이 오겠으며';
+  if (pty === 2) return '비나 눈이 오겠으며';
+  if (pty === 1) return '비가 오겠으며';
+  if (sky === 4) return '흐리겠으며';
+  if (sky === 3) return '구름이 많겠으며';
+  if (sky === 2) return '구름이 조금 있겠으며';
+  return '대체로 맑겠으며';
+}
+
+async function updateHolidayBulletin(data) {
+  const el = document.getElementById('holiday-bulletin');
+  if (!el) return;
+
+  const today = new Date();
+  const block = getUpcomingHolidayBlock(today, 14);
+  if (!block) { el.style.display = 'none'; el.textContent = ''; return; }
+
+  const fFull  = d => `'${String(d.getFullYear()).slice(2)}. ${d.getMonth()+1}. ${d.getDate()}.`;
+  const fShort = d => `${d.getMonth()+1}. ${d.getDate()}.`;
+  const titleEl = document.getElementById('sec-normal-title');
+  if (titleEl) titleEl.textContent = `□ ${block.name}연휴 (${fFull(block.from)} ~ ${fShort(block.to)}) 기상개황`;
+
+  const days = [];
+  for (let d = new Date(block.from); d <= block.to; d.setDate(d.getDate() + 1)) days.push(new Date(d));
+
+  const perDay = days.map(day => {
+    const dayStart = new Date(day); dayStart.setHours(0, 0, 0, 0);
+    const dayEnd   = new Date(day); dayEnd.setHours(23, 59, 59, 999);
+    const rows = (data.hourlyRows || []).filter(r => r.time >= dayStart && r.time <= dayEnd);
+    if (!rows.length) return { date: day, tmin: null, tmax: null, pop: null, sky: 1, pty: 0 };
+    const tmin = Math.min(...rows.map(r => r.tmp));
+    const tmax = Math.max(...rows.map(r => r.tmp));
+    const pop  = Math.max(...rows.map(r => r.pop || 0));
+    let sky = 1, pty = 0;
+    rows.forEach(r => { if (r.pty > pty || (r.pty === pty && r.sky > sky)) { sky = r.sky; pty = r.pty; } });
+    return { date: day, tmin, tmax, pop, sky, pty };
+  });
+
+  /* 단기예보 범위 밖(그 날짜 hourlyRows가 아예 없는 경우)만 중기예보로 보완 */
+  if (perDay.some(d => d.tmin === null)) {
+    try {
+      const mid = await fetchMidTermForCurrentAirport();
+      const issuanceDay = new Date(mid.issuanceDate.getFullYear(), mid.issuanceDate.getMonth(), mid.issuanceDate.getDate());
+      perDay.forEach(d => {
+        if (d.tmin !== null) return;
+        const dayOnly = new Date(d.date.getFullYear(), d.date.getMonth(), d.date.getDate());
+        const n = Math.round((dayOnly - issuanceDay) / 86400000);
+        if (n < 4 || n > 10) return; /* getMidLandFcst/getMidTa는 D+4부터 필드가 존재 */
+        if (mid.taItem) {
+          const mn = mid.taItem['taMin' + n], mx = mid.taItem['taMax' + n];
+          if (mn != null) d.tmin = parseFloat(mn);
+          if (mx != null) d.tmax = parseFloat(mx);
+        }
+        if (mid.fcstItem) {
+          const amWf  = mid.fcstItem['wf' + n + 'Am'] || mid.fcstItem['wf' + n];
+          const pmWf  = mid.fcstItem['wf' + n + 'Pm'] || mid.fcstItem['wf' + n];
+          const amWx  = wfToWxLocal(amWf), pmWx = wfToWxLocal(pmWf);
+          d.sky = Math.max(amWx.sky, pmWx.sky);
+          d.pty = Math.max(amWx.pty, pmWx.pty);
+          const amPop = mid.fcstItem['rnSt' + n + 'Am'] ?? mid.fcstItem['rnSt' + n];
+          const pmPop = mid.fcstItem['rnSt' + n + 'Pm'] ?? mid.fcstItem['rnSt' + n];
+          if (amPop != null || pmPop != null) d.pop = Math.max(parseInt(amPop || 0), parseInt(pmPop || 0));
+        }
+      });
+    } catch (e) { /* 중기예보 조회 실패 시 해당 날짜는 정보 없음으로 표시 */ }
+  }
+
+  const lines = perDay.map(d => {
+    const md = `${d.date.getMonth()+1}월 ${d.date.getDate()}일(${DAYS_KO[d.date.getDay()]})`;
+    if (d.tmin === null || d.tmax === null) return `${md}은 예보 자료가 아직 없습니다.`;
+    const popStr = (d.pop !== null && d.pop !== undefined) ? `, 강수확률 ${Math.round(d.pop)}%` : '';
+    return `${md}은 ${holidaySkyPhrase(d.sky, d.pty)}${popStr}, 기온은 ${Math.round(d.tmin)}~${Math.round(d.tmax)}℃가 되겠습니다.`;
+  });
+
+  el.textContent = lines.join('\n');
+  el.style.display = '';
 }
 
 /* ===================== 예상강수량 범위 표현 ===================== */
