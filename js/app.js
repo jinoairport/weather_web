@@ -336,6 +336,8 @@ function holidaySkyPhrase(sky, pty) {
   return '대체로 맑겠으며';
 }
 
+/* 보관용 — 연휴 기간 종합 문장 자동생성 (현재 미사용, 추후 재사용 대비 보존)
+   index.html에 id="v-overview" 요소가 없으면 그냥 아무 것도 하지 않음 */
 async function updateHolidayOverview(data) {
   const el = document.getElementById('v-overview');
   if (!el) return;
@@ -513,8 +515,6 @@ function updateRainSummary(data) {
       vIntense.textContent = `${fmt(intense.start)} ~ ${fmtEnd}(${Math.round(intense.total)}mm)`;
     }
   }
-
-  updateHolidayOverview(data);
 }
 
 /* ===================== 공통 유틸 ===================== */
