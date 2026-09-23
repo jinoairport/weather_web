@@ -133,14 +133,17 @@
               <span class="it-sep">:</span>
               <span class="it-val ce" id="v-overview" contenteditable="true">해당없음</span>
             </div>
-            <div class="it-row">
-              <span class="it-lbl">ㅇ 누적강수량</span>
-              <span class="it-sub">&nbsp;(<span class="ce" id="v-rain-day" contenteditable="true">1일</span>)</span>
-              <span class="it-sep">:</span>
-              <span class="it-val ce" id="v-accum" contenteditable="true">없음</span>
-              <button class="no-print add-row-btn" onclick="addRainRow('accum-extra')">+</button>
+            <div id="accum-group">
+              <div class="it-row">
+                <span class="it-lbl">ㅇ 누적강수량</span>
+                <span class="it-sub">&nbsp;(<span class="ce" id="v-rain-day" contenteditable="true">1일</span>)</span>
+                <span class="it-sep">:</span>
+                <span class="it-val ce" id="v-accum" contenteditable="true">없음</span>
+                <button class="no-print add-row-btn" onclick="addRainRow('accum-extra')">+</button>
+                <button class="no-print add-row-btn rm" onclick="document.getElementById('accum-group').remove()">×</button>
+              </div>
+              <div id="accum-extra"></div>
             </div>
-            <div id="accum-extra"></div>
             <div id="expected-group">
               <div class="it-row">
                 <span class="it-lbl">ㅇ 예상강수량</span>
