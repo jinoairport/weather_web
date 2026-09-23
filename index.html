@@ -14,13 +14,14 @@
   <!-- ===== 웹 전용 컨트롤 바 (인쇄 시 숨김) ===== -->
   <div class="no-print control-bar">
     <div class="ctrl-logo">
-      <div class="ctrl-title" id="ctrl-title-el">김해공항 기상정보 시스템</div>
+      <div class="ctrl-title ce" id="ctrl-title-el" contenteditable="true">김해공항 기상정보 시스템</div>
       <div class="ctrl-sub"><span id="ctrl-location">대저2동</span> 기준 &nbsp;·&nbsp; <span id="last-update">로딩 중...</span></div>
     </div>
     <div class="ctrl-center">
       <div class="mode-toggle">
-        <button id="btn-normal" class="mode-btn active" onclick="setMode('normal')">일반</button>
-        <button id="btn-rain"   class="mode-btn"        onclick="setMode('rain')">강우</button>
+        <button id="btn-normal"  class="mode-btn active" onclick="setMode('normal')">일반</button>
+        <button id="btn-rain"    class="mode-btn"        onclick="setMode('rain')">강우</button>
+        <button id="btn-holiday" class="mode-btn"        onclick="setMode('holiday')">연휴</button>
       </div>
     </div>
     <div class="ctrl-actions">
@@ -68,8 +69,9 @@
     <button class="mb-refresh" onclick="refreshData()" title="새로고침">↺</button>
     <button class="mb-airport" onclick="toggleAirportPanel()" title="공항선택">✈</button>
     <div class="mode-toggle">
-      <button id="mb-btn-normal" class="mode-btn active" onclick="setMode('normal')">일반</button>
-      <button id="mb-btn-rain"   class="mode-btn"        onclick="setMode('rain')">강우</button>
+      <button id="mb-btn-normal"  class="mode-btn active" onclick="setMode('normal')">일반</button>
+      <button id="mb-btn-rain"    class="mode-btn"        onclick="setMode('rain')">강우</button>
+      <button id="mb-btn-holiday" class="mode-btn"        onclick="setMode('holiday')">연휴</button>
     </div>
     <button class="mb-print" onclick="location.href='map.html'">🗺 지도</button>
     <button class="mb-print" onclick="printDoc()">🖨 출력</button>
@@ -97,14 +99,13 @@
       </div>
 
       <!-- 제목 -->
-      <h1 class="doc-title" id="doc-title-el">김해공항 기상정보</h1>
+      <h1 class="doc-title ce" id="doc-title-el" contenteditable="true">김해공항 기상정보</h1>
 
       <!-- ■ 일반 모드 요약 -->
       <div id="sec-normal">
         <div class="doc-sec">
           <div class="sec-hd" id="sec-normal-title">□ 주말 ('26. 6. 13. ~ 6. 14.) 기상예보</div>
           <div class="sec-body">
-            <div id="holiday-bulletin" class="doc-note ce" contenteditable="true" style="display:none"></div>
             <div class="it-row">
               <span class="it-lbl">ㅇ 강수량</span>
               <span class="it-sep">:</span>
@@ -153,6 +154,16 @@
               <span class="it-sep">:</span>
               <span class="it-val ce" id="v-intense" contenteditable="true">1일(월) 22시 ~ 2일(화) 06시(30mm)</span>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ■ 연휴 모드 요약 -->
+      <div id="sec-holiday" style="display:none">
+        <div class="doc-sec">
+          <div class="sec-hd">□ 기상개황</div>
+          <div class="sec-body">
+            <div id="holiday-bulletin" class="doc-note ce" contenteditable="true"></div>
           </div>
         </div>
       </div>
