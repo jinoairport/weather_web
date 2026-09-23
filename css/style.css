@@ -111,11 +111,6 @@ body {
 .it-sep  { margin: 0 6px; }
 .it-val  { flex: 1; color: #000; }
 
-/* 연휴 기상개황 통보문 — 일자별 서술형 요약 */
-.doc-note {
-  font-size: 13px; line-height: 1.8; color: #000;
-  margin-bottom: 10px; white-space: pre-line;
-}
 .it-bull { margin-right: 6px; }
 .indent2 { padding-left: 136px; }
 /* 값 위치부터 들여쓰기 (예상강수량 두 번째 줄) */

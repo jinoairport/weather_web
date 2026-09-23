@@ -14,14 +14,13 @@
   <!-- ===== 웹 전용 컨트롤 바 (인쇄 시 숨김) ===== -->
   <div class="no-print control-bar">
     <div class="ctrl-logo">
-      <div class="ctrl-title ce" id="ctrl-title-el" contenteditable="true">김해공항 기상정보 시스템</div>
+      <div class="ctrl-title" id="ctrl-title-el">김해공항 기상정보 시스템</div>
       <div class="ctrl-sub"><span id="ctrl-location">대저2동</span> 기준 &nbsp;·&nbsp; <span id="last-update">로딩 중...</span></div>
     </div>
     <div class="ctrl-center">
       <div class="mode-toggle">
-        <button id="btn-normal"  class="mode-btn active" onclick="setMode('normal')">일반</button>
-        <button id="btn-rain"    class="mode-btn"        onclick="setMode('rain')">강우</button>
-        <button id="btn-holiday" class="mode-btn"        onclick="setMode('holiday')">연휴</button>
+        <button id="btn-normal" class="mode-btn active" onclick="setMode('normal')">일반</button>
+        <button id="btn-rain"   class="mode-btn"        onclick="setMode('rain')">강우</button>
       </div>
     </div>
     <div class="ctrl-actions">
@@ -69,9 +68,8 @@
     <button class="mb-refresh" onclick="refreshData()" title="새로고침">↺</button>
     <button class="mb-airport" onclick="toggleAirportPanel()" title="공항선택">✈</button>
     <div class="mode-toggle">
-      <button id="mb-btn-normal"  class="mode-btn active" onclick="setMode('normal')">일반</button>
-      <button id="mb-btn-rain"    class="mode-btn"        onclick="setMode('rain')">강우</button>
-      <button id="mb-btn-holiday" class="mode-btn"        onclick="setMode('holiday')">연휴</button>
+      <button id="mb-btn-normal" class="mode-btn active" onclick="setMode('normal')">일반</button>
+      <button id="mb-btn-rain"   class="mode-btn"        onclick="setMode('rain')">강우</button>
     </div>
     <button class="mb-print" onclick="location.href='map.html'">🗺 지도</button>
     <button class="mb-print" onclick="printDoc()">🖨 출력</button>
@@ -99,7 +97,7 @@
       </div>
 
       <!-- 제목 -->
-      <h1 class="doc-title ce" id="doc-title-el" contenteditable="true">김해공항 기상정보</h1>
+      <h1 class="doc-title" id="doc-title-el">김해공항 기상정보</h1>
 
       <!-- ■ 일반 모드 요약 -->
       <div id="sec-normal">
@@ -131,6 +129,11 @@
           <div class="sec-hd">□ 기상개황</div>
           <div class="sec-body">
             <div class="it-row">
+              <span class="it-lbl">ㅇ 종&nbsp;합</span>
+              <span class="it-sep">:</span>
+              <span class="it-val ce" id="v-overview" contenteditable="true">해당없음</span>
+            </div>
+            <div class="it-row">
               <span class="it-lbl">ㅇ 누적강수량</span>
               <span class="it-sub">&nbsp;(<span class="ce" id="v-rain-day" contenteditable="true">1일</span>)</span>
               <span class="it-sep">:</span>
@@ -138,32 +141,26 @@
               <button class="no-print add-row-btn" onclick="addRainRow('accum-extra')">+</button>
             </div>
             <div id="accum-extra"></div>
-            <div class="it-row">
-              <span class="it-lbl">ㅇ 예상강수량</span>
-              <span class="it-sub">&nbsp;(<span class="ce" id="v-rain-period" contenteditable="true">1~2일</span>)</span>
-              <span class="it-sep">:</span>
-              <span class="it-val"><span class="ce" id="v-expected" contenteditable="true">20~60mm</span>&nbsp;<span class="ce" id="v-src" contenteditable="true">(중앙기상대)</span></span>
-              <button class="no-print add-row-btn" onclick="addRainRow('expected-extra')">+</button>
+            <div id="expected-group">
+              <div class="it-row">
+                <span class="it-lbl">ㅇ 예상강수량</span>
+                <span class="it-sub">&nbsp;(<span class="ce" id="v-rain-period" contenteditable="true">1~2일</span>)</span>
+                <span class="it-sep">:</span>
+                <span class="it-val"><span class="ce" id="v-expected" contenteditable="true">20~60mm</span>&nbsp;<span class="ce" id="v-src" contenteditable="true">(중앙기상대)</span></span>
+                <button class="no-print add-row-btn" onclick="addRainRow('expected-extra')">+</button>
+                <button class="no-print add-row-btn rm" onclick="document.getElementById('expected-group').remove()">×</button>
+              </div>
+              <div class="it-row indent-val">
+                <span class="it-val ce" id="v-expected-sub" contenteditable="true">*20~30mm (공군기상대)</span>
+              </div>
+              <div id="expected-extra"></div>
             </div>
-            <div class="it-row indent-val">
-              <span class="it-val ce" id="v-expected-sub" contenteditable="true">*20~30mm (공군기상대)</span>
-            </div>
-            <div id="expected-extra"></div>
             <div class="it-row">
               <span class="it-lbl">ㅇ 집중강수시간대</span>
               <span class="it-sep">:</span>
               <span class="it-val ce" id="v-intense" contenteditable="true">1일(월) 22시 ~ 2일(화) 06시(30mm)</span>
+              <button class="no-print add-row-btn rm" onclick="this.parentElement.remove()">×</button>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ■ 연휴 모드 요약 -->
-      <div id="sec-holiday" style="display:none">
-        <div class="doc-sec">
-          <div class="sec-hd">□ 기상개황</div>
-          <div class="sec-body">
-            <div id="holiday-bulletin" class="doc-note ce" contenteditable="true"></div>
           </div>
         </div>
       </div>

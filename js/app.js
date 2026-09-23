@@ -84,9 +84,8 @@ function renderAll() {
 
   if (APP_DATA.dailyRows) renderDailyTable(APP_DATA.dailyRows);
   renderHourlyTable(APP_DATA.hourlyRows, hourlyStep, currentMode);
-  if (currentMode === 'normal')  updateNormalSummary(APP_DATA);
-  if (currentMode === 'rain')    updateRainSummary(APP_DATA);
-  if (currentMode === 'holiday') updateHolidaySection(APP_DATA);
+  if (currentMode === 'normal') updateNormalSummary(APP_DATA);
+  if (currentMode === 'rain')   updateRainSummary(APP_DATA);
 }
 
 /* 강우 모드 자동감지 — 향후 72시간 내 비(pty>0) 또는 강수확률 50% 이상 */
@@ -112,26 +111,19 @@ function applyMode(mode) {
     const el = document.getElementById(id);
     if (el) el.classList.toggle('active', mode === 'rain');
   });
-  ['btn-holiday','mb-btn-holiday'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.classList.toggle('active', mode === 'holiday');
-  });
-  document.getElementById('sec-normal').style.display     = mode === 'normal'  ? '' : 'none';
-  document.getElementById('sec-rain').style.display       = mode === 'rain'    ? '' : 'none';
-  document.getElementById('sec-rain-extra').style.display = mode === 'rain'    ? '' : 'none';
-  document.getElementById('sec-holiday').style.display    = mode === 'holiday' ? '' : 'none';
+  document.getElementById('sec-normal').style.display     = mode === 'normal' ? '' : 'none';
+  document.getElementById('sec-rain').style.display       = mode === 'rain'   ? '' : 'none';
+  document.getElementById('sec-rain-extra').style.display = mode === 'rain'   ? '' : 'none';
 }
 
 /* ===================== 모드 전환 (사용자 직접 선택) ===================== */
 function setMode(mode) {
   modeManual = true;  // 이후 자동감지 비활성
   applyMode(mode);
-  if (mode !== 'holiday') restoreAirportTitle(); // 연휴 모드에서 바뀐 제목 원복
   if (APP_DATA) {
     renderHourlyTable(APP_DATA.hourlyRows, hourlyStep, currentMode);
-    if (currentMode === 'normal')  updateNormalSummary(APP_DATA);
-    if (currentMode === 'rain')    updateRainSummary(APP_DATA);
-    if (currentMode === 'holiday') updateHolidaySection(APP_DATA);
+    if (currentMode === 'normal') updateNormalSummary(APP_DATA);
+    if (currentMode === 'rain')   updateRainSummary(APP_DATA);
   } else {
     refreshData();
   }
@@ -344,23 +336,15 @@ function holidaySkyPhrase(sky, pty) {
   return '대체로 맑겠으며';
 }
 
-async function updateHolidaySection(data) {
-  const el = document.getElementById('holiday-bulletin');
+async function updateHolidayOverview(data) {
+  const el = document.getElementById('v-overview');
   if (!el) return;
 
   const today = new Date();
   const block = getUpcomingHolidayBlock(today, 14);
-  if (!block) { el.textContent = '다가오는 명절 연휴가 없습니다.'; return; }
+  if (!block) { el.textContent = '해당없음'; return; }
 
   const fShort = d => `${d.getMonth()+1}.${d.getDate()}`;
-  const code = localStorage.getItem('airport_code') || 'PUS';
-  const apt  = AIRPORTS.find(a => a.code === code);
-  if (apt) {
-    const dateRange = `${fShort(block.from)}~${fShort(block.to)}`;
-    setText('doc-title-el', `${apt.name}공항 ${block.name}연휴(${dateRange}) 기상정보`);
-    const ctEl = document.getElementById('ctrl-title-el');
-    if (ctEl) ctEl.textContent = `${apt.name}공항 ${block.name}연휴(${dateRange}) 기상정보 시스템`;
-  }
 
   const days = [];
   for (let d = new Date(block.from); d <= block.to; d.setDate(d.getDate() + 1)) days.push(new Date(d));
@@ -407,14 +391,18 @@ async function updateHolidaySection(data) {
     } catch (e) { /* 중기예보 조회 실패 시 해당 날짜는 정보 없음으로 표시 */ }
   }
 
-  const lines = perDay.map(d => {
-    const md = `${d.date.getMonth()+1}월 ${d.date.getDate()}일(${DAYS_KO[d.date.getDay()]})`;
-    if (d.tmin === null || d.tmax === null) return `${md}은 예보 자료가 아직 없습니다.`;
-    const popStr = (d.pop !== null && d.pop !== undefined) ? `, 강수확률 ${Math.round(d.pop)}%` : '';
-    return `${md}은 ${holidaySkyPhrase(d.sky, d.pty)}${popStr}, 기온은 ${Math.round(d.tmin)}~${Math.round(d.tmax)}℃가 되겠습니다.`;
-  });
+  const validDays = perDay.filter(d => d.tmin !== null && d.tmax !== null);
+  if (!validDays.length) { el.textContent = '예보 자료가 아직 없습니다.'; return; }
 
-  el.textContent = lines.join('\n');
+  const tmin = Math.min(...validDays.map(d => d.tmin));
+  const tmax = Math.max(...validDays.map(d => d.tmax));
+  const pop  = Math.max(...validDays.map(d => d.pop || 0));
+  let sky = 1, pty = 0;
+  validDays.forEach(d => { if (d.pty > pty || (d.pty === pty && d.sky > sky)) { sky = d.sky; pty = d.pty; } });
+
+  const dateRange = `${fShort(block.from)}~${fShort(block.to)}`;
+  el.textContent = `${block.name}연휴(${dateRange}) 기간 전반적으로 ${holidaySkyPhrase(sky, pty)}, `
+    + `강수확률 최대 ${Math.round(pop)}%, 기온은 ${Math.round(tmin)}~${Math.round(tmax)}℃ 분포를 보이겠습니다.`;
 }
 
 /* ===================== 예상강수량 범위 표현 ===================== */
@@ -525,6 +513,8 @@ function updateRainSummary(data) {
       vIntense.textContent = `${fmt(intense.start)} ~ ${fmtEnd}(${Math.round(intense.total)}mm)`;
     }
   }
+
+  updateHolidayOverview(data);
 }
 
 /* ===================== 공통 유틸 ===================== */
@@ -756,16 +746,6 @@ function setAirport(code) {
 
   const panel = document.getElementById('airport-panel');
   if (panel) panel.style.display = 'none';
-}
-
-/* 연휴 모드에서 바뀐 페이지 제목을 현재 선택된 공항 기준으로 원복 */
-function restoreAirportTitle() {
-  const code = localStorage.getItem('airport_code') || 'PUS';
-  const apt  = AIRPORTS.find(a => a.code === code);
-  if (!apt) return;
-  setText('doc-title-el', `${apt.name}공항 기상정보`);
-  const ctEl = document.getElementById('ctrl-title-el');
-  if (ctEl) ctEl.textContent = `${apt.name}공항 기상정보 시스템`;
 }
 
 function toggleAirportPanel() {
