@@ -352,10 +352,11 @@ function buildMockData(mode) {
   // 48시간 목업이므로 오늘/내일만 실데이터, 나머지는 가상 날짜 채우기
   const dailyRows = Object.values(dailyMap);
   // 10일치가 되도록 이후 날짜 추가 (단순 가상 데이터)
-  const lastDate = dailyRows.length > 0 ? new Date(dailyRows[dailyRows.length - 1].date) : new Date(today);
-  for (let i = dailyRows.length; i < 10; i++) {
+  const lastDate  = dailyRows.length > 0 ? new Date(dailyRows[dailyRows.length - 1].date) : new Date(today);
+  const startLen  = dailyRows.length; // dailyRows.length는 아래 push로 매 반복마다 바뀌므로 시작 시점 값을 고정해둬야 함
+  for (let i = startLen; i < 10; i++) {
     const d = new Date(lastDate);
-    d.setDate(lastDate.getDate() + (i - dailyRows.length + 1));
+    d.setDate(lastDate.getDate() + (i - startLen + 1));
     const skyCycle = [1, 1, 3, 4, 1, 3, 1, 4][i % 8];
     dailyRows.push({
       date: d,
