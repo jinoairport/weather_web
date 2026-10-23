@@ -221,7 +221,7 @@ function updateNormalSummary(data) {
 
   // 강수량 — 기간 총량 + 집중 시간대 표시
   const hasTrace = rows.some(r => r.pcpRaw === '1mm 미만');
-  const totalPcp = rows.reduce((s, r) => s + Math.max(0, r.pcp || 0), 0);
+  const totalPcp = rows.reduce((s, r) => s + pcpForSum(r), 0);
   const vRain    = document.getElementById('v-rainfall');
   if (vRain) {
     if (totalPcp >= 1) {
@@ -407,6 +407,12 @@ async function updateHolidayOverview(data) {
     + `강수확률 최대 ${Math.round(pop)}%, 기온은 ${Math.round(tmin)}~${Math.round(tmax)}℃ 분포를 보이겠습니다.`;
 }
 
+/* 합산용 시간당 강수량 — '1mm 미만'을 0.5로 어림잡은 값은 한 시간만 볼 땐 괜찮지만
+   여러 시간을 더하면(합산) 실제보다 크게 부풀려지므로, 합계 계산에서는 0으로 처리 */
+function pcpForSum(r) {
+  return r.pcpRaw === '1mm 미만' ? 0 : Math.max(0, r.pcp || 0);
+}
+
 /* ===================== 예상강수량 범위 표현 ===================== */
 function pcpRange(mm) {
   if (mm <= 0) return '없음';
@@ -456,7 +462,7 @@ function findIntenseSegment(futureRows, expectedTotal) {
   const segTotals = segs.map(seg => {
     const total = futureRows
       .filter(r => r.time >= seg.start && r.time <= seg.end)
-      .reduce((s, r) => s + Math.max(0, r.pcp || 0), 0);
+      .reduce((s, r) => s + pcpForSum(r), 0);
     return { ...seg, total };
   });
 
@@ -497,7 +503,7 @@ function updateRainSummary(data) {
 
   // 예상강수량: 현재 이후 미래 강수량 자동 합산
   const futureRows = data.hourlyRows.filter(r => r.time > today);
-  const expectedTotal = futureRows.reduce((s, r) => s + Math.max(0, r.pcp || 0), 0);
+  const expectedTotal = futureRows.reduce((s, r) => s + pcpForSum(r), 0);
   setText('v-expected', expectedTotal > 0 ? pcpRange(expectedTotal) : '없음');
 
   // 집중강수시간대

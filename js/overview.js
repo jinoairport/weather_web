@@ -395,7 +395,8 @@ function parseAptItems(items) {
           pty: +(v.PTY||0),
           sky: +(v.SKY||1),
           tmp: (!isNaN(rawTmp) && rawTmp > -99) ? rawTmp : null,
-          pcp: v.PCP==='강수없음'?0: v.PCP==='1mm 미만'?0.5:(parseFloat(v.PCP)||0),
+          pcp:    v.PCP==='강수없음'?0: v.PCP==='1mm 미만'?0.5:(parseFloat(v.PCP)||0),
+          pcpRaw: v.PCP,
           sno: v.SNO==='적설없음'?0: v.SNO==='1cm 미만'?0.5:(parseFloat(v.SNO)||0),
         };
       });
@@ -417,7 +418,7 @@ function parseAptItems(items) {
         pmWx:    repWx(pmH.length ? pmH : allH.filter(function(r){return r.h>=12;})),
         tmin:    tmpVals.length ? Math.min.apply(null, tmpVals) : null,
         tmax:    tmpVals.length ? Math.max.apply(null, tmpVals) : null,
-        pcp:     allH.reduce(function(s,r){return s+r.pcp;},0),
+        pcp:     allH.reduce(function(s,r){return s+(r.pcpRaw==='1mm 미만'?0:r.pcp);},0),
         sno:     allH.reduce(function(s,r){return s+r.sno;},0),
         hasSnow: allH.some(function(r){return r.pty===3;}),
       };
