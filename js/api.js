@@ -434,8 +434,10 @@ async function fetchObservedRn1(base_date, base_time) {
   let rn1Raw;
   arr.forEach(i => { if (i.category === 'RN1') rn1Raw = i.obsrValue; });
   if (rn1Raw === undefined) throw new Error('RN1 없음');
+  /* '1mm 미만'은 시간당으로는 0.5mm 어림이 맞지만, 이 값은 누적강수량 합산에만 쓰이므로
+     그대로 더하면 여러 시간 누적 시 실제보다 크게 부풀려짐 → 합산용으로 0 처리 */
   return rn1Raw === '강수없음' ? 0
-       : rn1Raw === '1mm 미만' ? 0.5
+       : rn1Raw === '1mm 미만' ? 0
        : parseFloat(rn1Raw) || 0;
 }
 
