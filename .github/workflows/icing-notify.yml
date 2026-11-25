@@ -1,0 +1,68 @@
+name: 노면 결빙 예측 카카오톡 알림
+
+# 이 저장소의 기본 브랜치(main, GitHub Pages 배포용)에만 schedule/workflow_dispatch가
+# 인식되므로 워크플로 정의는 main에 둔다. 실제 코드(scripts/icing-notify.js, js/icing.js,
+# tests/ 등)는 master 브랜치에만 있고 main에는 복사하지 않는다 — 아래 checkout 단계에서
+# ref: master로 그 코드를 그대로 받아와 실행한다.
+#
+# KST 16:30 / 21:00 실행이 목표지만, GitHub의 scheduled workflow는
+# 혼잡 시 수 분~십수 분 지연될 수 있어 10분 일찍 예약한다(:20, :50 — 정각/반각 혼잡도 피함).
+# KST 16:20 = UTC 07:20, KST 20:50 = UTC 11:50
+on:
+  schedule:
+    - cron: '20 7 * * *'
+    - cron: '50 11 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 실행 슬롯·대상일 계산 (판정 대상은 항상 "내일 새벽")
+        id: ctx
+        run: |
+          KST_HOUR=$(TZ=Asia/Seoul date +%H)
+          TARGET_DATE=$(TZ=Asia/Seoul date -d '+1 day' +%Y-%m-%d)
+          if [ "$KST_HOUR" -lt 19 ]; then SLOT=eve; else SLOT=night; fi
+          IS_MANUAL=false
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then IS_MANUAL=true; fi
+          echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
+          echo "target=$TARGET_DATE" >> "$GITHUB_OUTPUT"
+          echo "is_manual=$IS_MANUAL" >> "$GITHUB_OUTPUT"
+          echo "실행 시각(KST시)=$KST_HOUR, 슬롯=$SLOT, 대상일=$TARGET_DATE, 수동실행=$IS_MANUAL"
+
+      - name: 16:30 판정 결과 복원 시도 (21시 실행이 비교에 사용)
+        id: restore
+        uses: actions/cache/restore@v4
+        with:
+          path: .icing-state
+          key: icing-state-${{ steps.ctx.outputs.target }}
+
+      - name: 판정 + 카카오톡 알림
+        env:
+          KMA_SERVICE_KEY: ${{ secrets.KMA_SERVICE_KEY }}
+          KAKAO_REST_KEY: ${{ secrets.KAKAO_REST_KEY }}
+          KAKAO_CLIENT_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
+          KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          ICING_SLOT: ${{ steps.ctx.outputs.slot }}
+          ICING_IS_MANUAL: ${{ steps.ctx.outputs.is_manual }}
+        run: node scripts/icing-notify.js
+
+      - name: 16:30 판정 결과 저장 (21시 비교용)
+        if: steps.ctx.outputs.slot == 'eve'
+        uses: actions/cache/save@v4
+        with:
+          path: .icing-state
+          key: icing-state-${{ steps.ctx.outputs.target }}

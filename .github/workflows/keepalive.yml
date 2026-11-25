@@ -1,0 +1,42 @@
+name: 저장소 활동 유지 (예약 워크플로 자동 비활성화 방지)
+
+# 이 워크플로 정의 자체는 기본 브랜치(main)에 있어야 schedule/workflow_dispatch가 인식되지만,
+# 실제로 커밋을 남기는 대상은 항상 master 브랜치다. main에 커밋하면 GitHub Pages가 매번
+# 다시 배포되므로 반드시 피한다 — 아래에서 ref: master로 받아 master에만 push한다.
+#
+# GitHub 공식 문서(docs.github.com, events-that-trigger-workflows의 schedule 항목):
+#   "In a public repository, scheduled workflows are automatically disabled
+#    when no repository activity has occurred in 60 days."
+# 겨울철에도 icing-notify.yml이 끊기지 않도록, 60일보다 훨씬 짧은 주기(매월 1일)로
+# master에 커밋을 하나 남겨 "저장소 활동"을 만들어둔다. 자세한 설명: master의
+# .github/keepalive/README.md
+
+on:
+  schedule:
+    - cron: '0 3 1 * *' # 매월 1일 03:00 UTC(정각·반각 혼잡 회피)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: 타임스탬프 갱신 + master에 커밋·push
+        run: |
+          mkdir -p .github/keepalive
+          echo "마지막 자동 커밋(UTC): $(date -u +%Y-%m-%dT%H:%M:%SZ)" > .github/keepalive/last-run.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/keepalive/last-run.txt
+          if git diff --cached --quiet; then
+            echo "변경 없음 — 커밋 건너뜀"
+          else
+            git commit -m "chore: 저장소 활동 유지용 자동 커밋 (예약 워크플로 비활성화 방지)"
+            git push origin HEAD:master
+          fi
