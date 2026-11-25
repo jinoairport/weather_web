@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>김해공항 노면 결빙 예측</title>
+<style>
+:root{
+  --paper:#F2F5F7; --panel:#FFFFFF; --ink:#17232D; --sub:#5A6B78; --rule:#D5DEE4;
+  --ice:#2F6F95; --frost:#CFE3EE; --dew:#7FA7BD;
+  --lv0:#3F7D52; --lv1:#5E7F95; --lv2:#C98A12; --lv3:#B83A32;
+  --rain:#3C7DB5; --snow:#8A74B8; --mix:#5B8F98;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:"Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",sans-serif;font-size:15px;line-height:1.55;
+  font-variant-numeric:tabular-nums}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;
+  padding:14px 28px;border-bottom:1px solid var(--rule);background:var(--panel)}
+header h1{font-size:17px;margin:0;font-weight:700;letter-spacing:-0.2px}
+header .meta{color:var(--sub);font-size:13px}
+.ctrl{display:flex;gap:6px;align-items:center}
+.ctrl button{font:inherit;font-size:14px;border:1px solid var(--rule);background:var(--panel);color:var(--ink);
+  padding:6px 12px;border-radius:6px;cursor:pointer}
+.ctrl button[aria-pressed="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
+.ctrl button:focus-visible{outline:2px solid var(--ice);outline-offset:2px}
+main{max-width:1180px;margin:0 auto;padding:24px 28px 48px}
+.verdict{display:grid;grid-template-columns:minmax(260px,1fr) 2fr;gap:28px;align-items:stretch}
+.level{border-left:10px solid var(--c);padding:6px 0 6px 22px}
+.level .when{color:var(--sub);font-size:14px}
+.level .name{font-size:64px;font-weight:800;line-height:1.05;color:var(--c);margin:6px 0 4px;letter-spacing:-2px}
+.level .action{font-size:18px;font-weight:600;margin-bottom:10px}
+.level .facts{color:var(--sub);font-size:14px}
+.level .facts b{color:var(--ink);font-weight:600}
+.checks{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.check{background:var(--panel);border:1px solid var(--rule);border-radius:8px;padding:14px 16px}
+.check.met{border-color:var(--lv3);box-shadow:inset 0 3px 0 var(--lv3)}
+.check h3{margin:0 0 2px;font-size:15px}
+.check .desc{color:var(--sub);font-size:13px;margin-bottom:8px}
+.check ul{list-style:none;margin:0;padding:0}
+.check li{display:grid;grid-template-columns:20px 1fr;gap:4px;padding:5px 0;border-top:1px dashed var(--rule);font-size:13.5px}
+.check li:first-child{border-top:0}
+.mark{font-weight:800}
+.mark.y{color:var(--lv3)} .mark.n{color:#A9B6BF}
+.check li small{display:block;color:var(--sub)}
+.downs{grid-column:1/-1;background:#FFF7E6;border:1px solid #EFD9A8;border-radius:8px;padding:10px 14px;font-size:14px}
+section.timeline{margin-top:30px;background:var(--panel);border:1px solid var(--rule);border-radius:8px;padding:16px 18px 10px}
+section h2{font-size:15px;margin:0 0 4px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;color:var(--sub);font-size:12.5px;margin-bottom:6px}
+.legend i{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:5px}
+.chartwrap{overflow-x:auto}
+svg text{font-family:inherit}
+details{margin-top:18px;background:var(--panel);border:1px solid var(--rule);border-radius:8px;padding:10px 16px}
+summary{cursor:pointer;font-weight:600}
+table{border-collapse:collapse;width:100%;margin-top:10px;font-size:13px}
+th,td{padding:5px 8px;border-bottom:1px solid var(--rule);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+tr.frz td{background:#EEF5FA}
+tr.pr td{color:var(--rain);font-weight:600}
+.note{color:var(--sub);font-size:12.5px;margin-top:22px;max-width:76ch}
+.error{background:#FBEAEA;border:1px solid #E6B8B5;color:#7A211B;border-radius:8px;padding:14px 16px}
+.loading{color:var(--sub);padding:40px 0}
+@media (max-width:820px){.verdict{grid-template-columns:1fr}.checks{grid-template-columns:1fr}.level .name{font-size:52px}
+  header,main{padding-left:16px;padding-right:16px}}
+@media (prefers-reduced-motion:no-preference){.level{animation:in .35s ease-out}@keyframes in{from{opacity:0;transform:translateY(6px)}}}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>김해공항 노면 결빙 예측</h1>
+    <div class="meta" id="meta">기상청 단기예보·초단기실황 기준</div>
+  </div>
+  <div class="ctrl" id="ctrl" role="group" aria-label="판정 대상일">
+    <button data-off="0">오늘 아침</button>
+    <button data-off="1">내일 아침</button>
+    <button data-off="2">모레 아침</button>
+    <button id="refresh" title="최신 예보로 다시 판정">다시 판정</button>
+  </div>
+</header>
+<main id="main"><div class="loading">예보를 받아 판정하는 중입니다…</div></main>
+
+<script>
+const LV_COLOR = ["var(--lv0)","var(--lv1)","var(--lv2)","var(--lv3)"];
+const DESC = {
+  "결빙형":"전날 늦게까지 온 비가 마르기 전에 새벽 영하로 떨어지는 경우",
+  "강수형":"밤새 식은 노면 위에 영하 근처에서 비·눈이 내리는 경우"
+};
+let target = null;
+
+function iso(d){return d.toISOString().slice(0,10)}
+function kdate(s){const d=new Date(s+"T00:00");return `${d.getMonth()+1}월 ${d.getDate()}일(${"일월화수목금토"[d.getDay()]})`}
+
+async function load(t){
+  const main=document.getElementById("main");
+  main.innerHTML='<div class="loading">예보를 받아 판정하는 중입니다…</div>';
+  try{
+    const r=await fetch("/api/judge"+(t?`?target=${t}`:""));
+    const j=await r.json();
+    if(!r.ok||j.error) throw new Error(j.error||r.statusText);
+    target=j.target; render(j); pressButtons();
+  }catch(e){
+    main.innerHTML=`<div class="error"><b>판정하지 못했습니다.</b><br>${e.message}<br><br>
+      config.json의 인증키와 인터넷 연결을 확인한 뒤 [다시 판정]을 누르세요.</div>`;
+  }
+}
+
+function pressButtons(){
+  const today=new Date(); today.setHours(0,0,0,0);
+  document.querySelectorAll("#ctrl button[data-off]").forEach(b=>{
+    const d=new Date(today); d.setDate(d.getDate()+(+b.dataset.off));
+    const s=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    b.dataset.date=s; b.setAttribute("aria-pressed", s===target?"true":"false");
+  });
+}
+
+function render(j){
+  document.getElementById("meta").textContent=`${j.base} 단기예보 · 격자 ${j.grid} · 판정 ${j.now}`;
+  const c=LV_COLOR[j.level];
+  const facts=[];
+  if(j.first_risk_time) facts.push(`위험 시작 예상 <b>${j.first_risk_time}</b>`);
+  facts.push(`일출 <b>${j.sunrise}</b>`);
+  if(j.types.length) facts.push(`유형 <b>${j.types.join(", ")}</b>`);
+  if(j.missing_hours>0) facts.push(`자료 빠진 시간 ${j.missing_hours}시간`);
+  const checks=j.checks.map(ck=>`
+    <div class="check ${ck.met?"met":""}">
+      <h3>${ck.type} ${ck.met?"· 조건 충족":"· 미충족"}</h3>
+      <div class="desc">${DESC[ck.type]}</div>
+      <ul>${ck.items.map(([n,ok,v])=>`<li><span class="mark ${ok?"y":"n"}">${ok?"✓":"–"}</span>
+        <span>${n}<small>${v}</small></span></li>`).join("")}</ul>
+    </div>`).join("");
+  const downs=j.downgrades.length?`<div class="downs"><b>단계 하향</b> — ${j.downgrades.join(" / ")}</div>`:"";
+  document.getElementById("main").innerHTML=`
+    <div class="verdict">
+      <div class="level" style="--c:${c}">
+        <div class="when">${kdate(j.target)} 아침</div>
+        <div class="name">${j.level_name}</div>
+        <div class="action">${j.action}</div>
+        <div class="facts">${facts.join("<br>")}</div>
+      </div>
+      <div class="checks">${checks}${downs}</div>
+    </div>
+    <section class="timeline">
+      <h2>전날 12시 ~ 당일 12시</h2>
+      <div class="legend">
+        <span><i style="background:var(--ink)"></i>기온</span>
+        <span><i style="background:var(--dew)"></i>이슬점</span>
+        <span><i style="background:var(--frost);height:10px"></i>기온 0℃ 이하 시간</span>
+        <span><i style="background:var(--rain);height:8px"></i>비</span>
+        <span><i style="background:var(--snow);height:8px"></i>눈</span>
+        <span><i style="background:var(--mix);height:8px"></i>비/눈</span>
+        <span>빗금: 실황(지난 시간)</span>
+      </div>
+      <div class="chartwrap">${chart(j)}</div>
+    </section>
+    <details>
+      <summary>시간별 자료 보기</summary>
+      <table><thead><tr><th>시각</th><th>기온℃</th><th>이슬점℃</th><th>습도%</th><th>강수</th><th>강수량mm</th><th>풍속m/s</th><th>하늘</th><th>자료</th></tr></thead>
+      <tbody>${j.hours.map(h=>`<tr class="${h.T<=0?"frz":""} ${h.pty?"pr":""}">
+        <td>${h.dt.slice(5)}</td><td>${h.T}</td><td>${h.Td??"-"}</td><td>${h.RH??"-"}</td><td>${h.pty_name||"-"}</td>
+        <td>${h.pcp||"-"}</td><td>${h.wsd==null?"-":h.wsd.toFixed(1)}</td><td>${h.sky_name||"-"}</td><td>${h.src}</td></tr>`).join("")}</tbody></table>
+    </details>
+    <p class="note">판정 기준은 '22~'26 동절기 중 살포·제빙 기록이 있는 573일(결빙 대응 6건)을 공항 관측으로 역검증해 정한 잠정값입니다.
+      격자 예보(5km)는 공항 안의 그늘·물고임 구간 차이를 반영하지 못하므로, '주의' 이상이면 취약 구간 순찰로 확인하세요.
+      판정 결과는 판정기록.csv에 쌓여 다음 동절기 기준 보정에 쓰입니다.</p>`;
+}
+
+function chart(j){
+  const W=1100,H=300,L=44,R=14,T=16,B=58, hs=j.hours;
+  if(!hs.length) return "<p>표시할 자료가 없습니다.</p>";
+  const vals=hs.flatMap(h=>[h.T,h.Td]).filter(v=>v!=null);
+  let lo=Math.min(-3,...vals)-1, hi=Math.max(5,...vals)+1;
+  const n=hs.length, x=i=>L+(W-L-R)*(i+0.5)/n, y=v=>T+(H-T-B)*(hi-v)/(hi-lo), bw=(W-L-R)/n;
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:760px" role="img" aria-label="시간별 기온과 강수">`;
+  s+=`<defs><pattern id="obs" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="6" stroke="#C9D3DA" stroke-width="2"/></pattern></defs>`;
+  hs.forEach((h,i)=>{ if(h.T<=0) s+=`<rect x="${x(i)-bw/2}" y="${T}" width="${bw}" height="${H-T-B}" fill="var(--frost)"/>`;
+                      if(h.src==="실황") s+=`<rect x="${x(i)-bw/2}" y="${H-B+30}" width="${bw}" height="6" fill="url(#obs)"/>`;});
+  for(let v=Math.ceil(lo);v<=hi;v++){ if(v%2) continue;
+    s+=`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="${v===0?"var(--ice)":"#E6ECF0"}" stroke-width="${v===0?1.5:1}" ${v===0?'stroke-dasharray="5 4"':""}/>
+        <text x="${L-6}" y="${y(v)+4}" font-size="11" text-anchor="end" fill="var(--sub)">${v}℃</text>`;}
+  const col={1:"var(--rain)",2:"var(--mix)",3:"var(--snow)",4:"var(--rain)"};
+  hs.forEach((h,i)=>{ if(h.pty){ const ph=Math.min(40,10+(h.pcp||0)*8);
+    s+=`<rect x="${x(i)-bw*0.35}" y="${H-B-ph}" width="${bw*0.7}" height="${ph}" fill="${col[h.pty]}" opacity=".85"><title>${h.dt.slice(5)} ${h.pty_name} ${h.pcp||""}</title></rect>`;}});
+  const path=k=>hs.map((h,i)=>h[k]==null?null:`${x(i)},${y(h[k])}`).filter(Boolean).join(" L");
+  s+=`<path d="M${path("Td")}" fill="none" stroke="var(--dew)" stroke-width="2" stroke-dasharray="3 3"/>`;
+  s+=`<path d="M${path("T")}" fill="none" stroke="var(--ink)" stroke-width="2.4"/>`;
+  hs.forEach((h,i)=>{ s+=`<circle cx="${x(i)}" cy="${y(h.T)}" r="2.6" fill="var(--ink)"><title>${h.dt.slice(5)} ${h.T}℃ / 이슬점 ${h.Td??"-"}℃</title></circle>`;
+    const hr=+h.dt.slice(11,13);
+    if(hr%2===0) s+=`<text x="${x(i)}" y="${H-B+18}" font-size="11" text-anchor="middle" fill="${hr===0?"var(--ink)":"var(--sub)"}" font-weight="${hr===0?700:400}">${hr===0?h.dt.slice(5,10).replace("-","/"):hr+"시"}</text>`;});
+  const [sh,sm]=j.sunrise.split(":").map(Number); const si=hs.findIndex(h=>h.dt.slice(0,10)===j.target&&+h.dt.slice(11,13)===sh);
+  if(si>=0){ const sx=x(si)-bw/2+bw*sm/60;
+    s+=`<line x1="${sx}" x2="${sx}" y1="${T}" y2="${H-B}" stroke="var(--lv2)" stroke-width="1.5"/>
+        <text x="${sx+4}" y="${T+12}" font-size="11.5" fill="var(--lv2)">일출 ${j.sunrise}</text>`;}
+  return s+"</svg>";
+}
+
+document.querySelectorAll("#ctrl button[data-off]").forEach(b=>b.addEventListener("click",()=>load(b.dataset.date)));
+document.getElementById("refresh").addEventListener("click",()=>load(target));
+pressButtons(); load();
+</script>
+</body>
+</html>
