@@ -3,3 +3,4 @@ server.py
 js/apikey.js
 __pycache__/
 *.pyc
+.icing-state/
