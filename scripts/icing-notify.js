@@ -175,7 +175,7 @@ function build1Message(res) {
       : `${hourOnlyKo(res.freeze_start_time) || '새벽'}경부터 노면 결빙(블랙아이스), 일출(${res.sunrise}) 후 해소 예상`;
     return composeWithLimit([
       { text: `[김해공항 노면결빙 예보] ${header} 새벽 「위험」` },
-      { text: `■예상: ${expect}` },
+      { text: `■예상: ${expect}`, trimmable: true },
       { text: '■조치: 제설제 살포인원 05시 조기출근 → 결빙 취약구간(그늘·물고임·보도) 제설제 사전 살포, 06시 승객 보행 전 완료 후 결과 단톡방 공유' },
       { text: '※21시 재판정 결과 추가 통보 예정' },
     ]);
@@ -183,7 +183,7 @@ function build1Message(res) {
   // level === 2 (주의) — 사유와 관계없이 공통 문구
   return composeWithLimit([
     { text: `[김해공항 노면결빙 예보] ${header} 새벽 「주의」` },
-    { text: `■예상: 05~07시 취약구간 얇은 결빙 가능(일출 ${res.sunrise}, 06시 승객 보행 전 확인 필요)` },
+    { text: `■예상: 05~07시 취약구간 얇은 결빙 가능(일출 ${res.sunrise}, 06시 승객 보행 전 확인 필요)`, trimmable: true },
     { text: '■조치: 추가 인원 조기출근 없음. 야간 점검자가 05시경 취약구간(그늘·물고임·보도) 순찰 → 결빙 시 국부 살포·단톡방 보고, 범위가 넓으면 살포인원 호출' },
     { text: '※21시 재판정 결과 추가 통보 예정' },
   ]);
