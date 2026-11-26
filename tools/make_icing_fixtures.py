@@ -3,20 +3,18 @@
 실제 METAR 과거 기록(backtest.py의 load())으로 12개 날짜의 판정 입력·기대값을
 tests/icing_fixtures.json으로 저장한다 — js/icing.js 포팅 검증용.
 
-사용: python tools/make_icing_fixtures.py
+사용: python tools/make_icing_fixtures.py            (기본: tools/data/rkpk_metar.json.gz)
+      python tools/make_icing_fixtures.py a.csv b.csv (CSV를 직접 지정해도 됨)
 """
 import sys, os, json
 from datetime import datetime, timedelta, date
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "icing-ref"))
-from backtest import load          # noqa: E402
-from icing_rules import judge      # noqa: E402
+from backtest import load      # noqa: E402
+from icing_rules import judge  # noqa: E402
 
-CSV_PATHS = [
-    r"C:\data\icing\RKPK.csv",
-    r"C:\data\icing\RKPK (1).csv",
-]
+CSV_PATHS = [os.path.join(HERE, "data", "rkpk_metar.json.gz")]
 
 TARGETS = [
     "2022-12-21", "2024-01-09", "2024-01-10", "2024-03-13",
@@ -35,7 +33,7 @@ def window(hours, target):
 
 
 def main():
-    hours = load(CSV_PATHS)
+    hours = load(sys.argv[1:] or CSV_PATHS)
     hours.sort(key=lambda h: h["dt"])
     print(f"관측 시간별 자료 {len(hours)}건 로드 "
           f"({hours[0]['dt']} ~ {hours[-1]['dt']})")

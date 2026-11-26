@@ -26,6 +26,7 @@ const { execFileSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const STATE_PATH = process.env.ICING_STATE_PATH || path.join(ROOT, '.icing-state', 'state.json');
+const LOG_DIR = path.join(ROOT, 'data', 'icing-log');
 const LINK = 'https://jinoairport.github.io/weather_web/icing.html';
 const DAYS_KO = ['일', '월', '화', '수', '목', '금', '토'];
 
@@ -371,6 +372,45 @@ function saveState(res) {
   }, null, 1), 'utf8');
 }
 
+/* ===================== 7-1. 판정 결과 자동 기록(data/icing-log/{동절기}.json) =====================
+   master에만 쌓는다(이 파일 작성 뒤 워크플로가 master에 커밋·push — main에는 올리지 않음).
+   토큰·키는 절대 넣지 않는다. */
+function winterSeasonLabel(targetIso) {
+  const [y, m] = targetIso.split('-').map(Number);
+  const startYear = m >= 10 ? y : y - 1; // 대상일이 10~12월이면 그 해가 동절기 시작 연도, 1~9월이면 전년도
+  return `${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`;
+}
+
+function cautionReasonTag(res) {
+  if (res.level !== 2) return null;
+  if (res.downgrade_types.includes('early_recovery')) return 'early_recovery';
+  if (res.downgrade_types.includes('strong_wind')) return 'strong_wind';
+  if (res.types.includes('증발냉각')) return 'evap_cooling';
+  return 'unknown';
+}
+
+function appendIcingLog(res, slot, isManual, sent, nowDisplay) {
+  const file = path.join(LOG_DIR, `${winterSeasonLabel(res.target)}.json`);
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+  let log = [];
+  try { log = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { log = []; }
+  log.push({
+    executed_at: nowDisplay,
+    slot, is_manual: isManual,
+    target: res.target,
+    level: res.level, level_name: res.level_name,
+    caution_reason: cautionReasonTag(res),
+    forecast_base: res.base,
+    morning_min_temp: res.morning_min_temp,
+    night_min_temp: res.night_min_temp,
+    last_rain_time: res.last_rain_time,
+    freeze_start_time: res.freeze_start_time,
+    precip_start_time: res.precip_start_time,
+    sent,
+  });
+  fs.writeFileSync(file, JSON.stringify(log, null, 1), 'utf8');
+}
+
 /* ===================== 8. 카카오 토큰 갱신 + 시크릿 반영 =====================
    공개 로그 — 토큰 값은 마스킹해도 절대 출력하지 않는다. 성공/실패와
    로테이션 발생 여부만 남긴다. */
@@ -502,8 +542,11 @@ async function main() {
   // 16:30 슬롯은 발송 여부와 무관하게 상태를 남겨 21시가 비교할 수 있게 한다
   if (slot === 'eve') saveState(res);
 
+  const nowDisplay = icing.icingFmtDateTime(icing.icingKstNowMs());
+
   if (!shouldSend) {
     console.log('발송: 조건 미충족 — 보내지 않음');
+    appendIcingLog(res, slot, isManual, false, nowDisplay);
     return;
   }
 
@@ -512,6 +555,7 @@ async function main() {
     // eslint-disable-next-line no-await-in-loop
     await sendKakaoMemo(accessToken, text, buttonTitle);
   }
+  appendIcingLog(res, slot, isManual, true, nowDisplay);
 }
 
 if (require.main === module) {
@@ -522,5 +566,5 @@ module.exports = {
   composeWithLimit, pickPrimaryType, hourRangeKo, tempRangeKo,
   build1Message, build2Message, buildCalmMessage, build2100Message, describeChange,
   fmtHeaderDate, hourOnlyKo, precipPhrase, loadIcingModule,
-  computeTomorrowTarget,
+  computeTomorrowTarget, winterSeasonLabel, cautionReasonTag, appendIcingLog,
 };

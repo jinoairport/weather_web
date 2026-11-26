@@ -86,7 +86,7 @@ tr.pr td{color:var(--rain);font-weight:600}
     <button data-off="1">내일 아침</button>
     <button data-off="2">모레 아침</button>
     <button id="refresh" title="최신 예보로 다시 판정">다시 판정</button>
-    <button id="dl-csv" title="판정 기록 CSV 다운로드">📥 기록 CSV</button>
+    <button id="log-view" title="저장소에 기록된 판정 결과 보기">📖 판정 기록</button>
   </div>
 </header>
 <main id="main"><div class="loading">예보를 받아 판정하는 중입니다…</div></main>
@@ -185,7 +185,56 @@ function render(j){
     </details>
     <p class="note">판정 기준은 '22~'26 동절기 중 살포·제빙 기록이 있는 573일(결빙 대응 6건)을 공항 관측으로 역검증해 정한 잠정값입니다.
       격자 예보(5km)는 공항 안의 그늘·물고임 구간 차이를 반영하지 못하므로, '주의' 이상이면 취약 구간 순찰로 확인하세요.
-      판정 결과는 이 브라우저에 기록되며, 상단 "기록 CSV" 버튼으로 내려받아 다음 동절기 기준 보정에 쓸 수 있습니다.</p>`;
+      판정 결과는 자동 알림이 실행될 때마다 저장소에 기록되며, 상단 "판정 기록" 버튼으로 볼 수 있습니다.</p>`;
+}
+
+/* "YYYY-MM-DD" -> 동절기 라벨("2026-27") — scripts/icing-notify.js의 winterSeasonLabel()과 같은 규칙
+   (10~12월이면 그 해가 시작 연도, 1~9월이면 전년도가 시작 연도) */
+function seasonLabel(dateIso) {
+  const [y, m] = dateIso.split("-").map(Number);
+  const sy = m >= 10 ? y : y - 1;
+  return `${sy}-${String((sy + 1) % 100).padStart(2, "0")}`;
+}
+
+const CAUTION_REASON_KO = { early_recovery: "조기 회복", strong_wind: "강풍", evap_cooling: "증발냉각", unknown: "-" };
+
+function renderLog(log, season) {
+  const byDate = {};
+  log.forEach(r => {
+    const d = byDate[r.target] || (byDate[r.target] = {});
+    if (r.slot === "eve") d.eve = r; else d.night = r;
+  });
+  const dates = Object.keys(byDate).sort();
+  const rows = dates.map(d => {
+    const e = byDate[d].eve, n = byDate[d].night;
+    const rep = n || e;
+    const reason = rep && rep.caution_reason ? (CAUTION_REASON_KO[rep.caution_reason] || "-") : "-";
+    const sent = (e && e.sent) || (n && n.sent) ? "발송" : "미발송";
+    return `<tr><td>${d}</td><td>${e ? e.level_name : "-"}</td><td>${n ? n.level_name : "-"}</td><td>${reason}</td><td>${sent}</td></tr>`;
+  }).join("");
+  document.getElementById("main").innerHTML = `
+    <section>
+      <h2>판정 기록 — ${season} 동절기</h2>
+      <table><thead><tr><th>날짜</th><th>16:30 단계</th><th>21:00 단계</th><th>사유</th><th>발송</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="5">기록이 없습니다.</td></tr>'}</tbody></table>
+      <p><button onclick="load(target)">← 돌아가기</button></p>
+    </section>`;
+}
+
+async function showLog() {
+  const main = document.getElementById("main");
+  main.innerHTML = '<div class="loading">기록을 불러오는 중입니다…</div>';
+  const season = seasonLabel(target || iso(new Date()));
+  const url = `https://raw.githubusercontent.com/jinoairport/weather_web/master/data/icing-log/${season}.json`;
+  try {
+    const resp = await fetch(url, { cache: "no-store" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    renderLog(await resp.json(), season);
+  } catch (e) {
+    main.innerHTML = `<div class="error"><b>판정 기록을 불러오지 못했습니다.</b><br>${e.message}<br><br>
+      이번 동절기(${season}) 기록이 아직 없을 수 있습니다.<br><br>
+      <button onclick="load(target)">← 돌아가기</button></div>`;
+  }
 }
 
 function chart(j){
@@ -220,7 +269,7 @@ function chart(j){
 
 document.querySelectorAll("#ctrl button[data-off]").forEach(b=>b.addEventListener("click",()=>load(b.dataset.date)));
 document.getElementById("refresh").addEventListener("click",()=>load(target));
-document.getElementById("dl-csv").addEventListener("click",()=>icingDownloadLogCsv());
+document.getElementById("log-view").addEventListener("click",showLog);
 (async () => { await CONFIG.ready; pressButtons(); load(); })();
 </script>
 </body></html>

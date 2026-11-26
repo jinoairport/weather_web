@@ -434,46 +434,6 @@ async function icingCollectHours(target, forecastHourlyRows) {
   return Object.keys(hours).map(Number).sort((a, b) => a - b).map(ms => hours[ms]);
 }
 
-/* ===================== 판정 기록 (localStorage 로그 + CSV 다운로드) ===================== */
-const ICING_LOG_KEY = 'icing_log';
-
-function icingLoadLog() {
-  try { return JSON.parse(localStorage.getItem(ICING_LOG_KEY) || '[]'); }
-  catch (e) { return []; }
-}
-
-function icingAppendLog(res, baseDisplay) {
-  try {
-    const log = icingLoadLog();
-    log.push({
-      판정시각: icingFmtDateTime(icingKstNowMs()),
-      예보발표: baseDisplay || '',
-      대상일: res.target,
-      단계: res.level_name,
-      유형: res.types.join('/'),
-      하향사유: res.downgrades.join('; '),
-    });
-    localStorage.setItem(ICING_LOG_KEY, JSON.stringify(log));
-  } catch (e) {}
-}
-
-function icingDownloadLogCsv() {
-  const log = icingLoadLog();
-  const header = ['판정시각', '예보발표', '대상일', '단계', '유형', '하향사유'];
-  const esc = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
-  const lines = [header.join(',')].concat(log.map(r => header.map(k => esc(r[k])).join(',')));
-  const csv = '﻿' + lines.join('\r\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = '판정기록.csv';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
 /* ===================== 메인 진입점 ===================== */
 /* target이 없으면 기본 대상일(정오 이후 내일, 그 전 오늘) 사용.
    반환값은 icing_rules.py judge() 결과에 base/grid/now/default_target/criteria를 더한 것
@@ -494,7 +454,6 @@ async function icingRunJudge(target) {
   delete res.criteria.lat;
   delete res.criteria.lon;
 
-  icingAppendLog(res, res.base);
   return res;
 }
 

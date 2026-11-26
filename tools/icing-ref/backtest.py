@@ -5,10 +5,13 @@
 - 관측을 단기예보와 같은 시간별 형식(TMP·REH·PTY·PCP·WSD·SKY)으로 바꿔 icing_rules.judge()에 넣음
 사용: python backtest.py RKPK.csv [RKPK2.csv ...]
 """
-import csv, sys
+import csv, gzip, json, os, sys
 from datetime import datetime, timedelta, date
 from collections import defaultdict
 from icing_rules import judge
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_ARCHIVE = os.path.join(HERE, "..", "data", "rkpk_metar.json.gz")
 
 # 기록으로 확인된 결빙 대응일 (남부공항서비스 월간 업무 실적)
 EVENTS = {
@@ -33,13 +36,24 @@ def num(x):
         return None
 
 
+def read_rows(p):
+    """CSV(IEM ASOS 내보내기) 또는 tools/build_rkpk_archive.py가 만든 .json.gz/.json 모두 지원"""
+    if p.endswith(".json.gz"):
+        with gzip.open(p, "rt", encoding="utf-8") as f:
+            return json.load(f)
+    if p.endswith(".json"):
+        with open(p, encoding="utf-8") as f:
+            return json.load(f)
+    with open(p, encoding="utf-8-sig") as f:
+        return list(csv.DictReader(f))
+
+
 def load(paths):
     obs = {}
     for p in paths:
-        with open(p, encoding="utf-8-sig") as f:
-            for row in csv.DictReader(f):
-                t = datetime.strptime(row["valid"], "%Y-%m-%d %H:%M") + timedelta(hours=9)
-                obs[t] = row
+        for row in read_rows(p):
+            t = datetime.strptime(row["valid"], "%Y-%m-%d %H:%M") + timedelta(hours=9)
+            obs[t] = row
     hourly = defaultdict(list)
     for t, row in obs.items():
         hourly[t.replace(minute=0)].append((t, row))
@@ -76,7 +90,7 @@ def labeled(d):
 
 
 if __name__ == "__main__":
-    hours = load(sys.argv[1:])
+    hours = load(sys.argv[1:] or [DEFAULT_ARCHIVE])
     first, last = hours[0]["dt"].date(), hours[-1]["dt"].date()
     d = first + timedelta(days=1)
     rows, hit, miss, fa, n = [], 0, 0, 0, 0
