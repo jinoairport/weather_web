@@ -196,26 +196,38 @@ function extractRecoverTemp09(res) {
   return m ? m[1] : null;
 }
 
+/* data.baseTimeDisplay(예: "11/26 17:00 발표", stale 시 "⚠" 접두)를
+   "{m}/{d} {HH}시 발표" 한 형태로 통일 — 괄호 중첩 없이 headerLine 안에 그대로 들어간다 */
+function formatBaseKo(baseDisplay) {
+  const raw = String(baseDisplay || '');
+  const m = raw.match(/(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):\d{2}/);
+  if (!m) return raw || '-';
+  const hh = String(Number(m[3])).padStart(2, '0');
+  return `${Number(m[1])}/${Number(m[2])} ${hh}시 발표`;
+}
+
 function build2Message(res) {
-  const headerLine = `[판정 근거] 기상청 예보(${res.base})`;
+  const headerLine = `[판정 근거] 기상청 예보(${formatBaseKo(res.base)})`;
 
   if (res.level === 3) {
     const primary = pickPrimaryType(res);
     if (primary === 'DS') {
       return composeWithLimit([
         { text: headerLine },
-        { text: `·기온: 밤사이 최저 ${res.night_min_temp}℃(${hourOnlyKo(res.night_min_time) || ''}) → 노면이 식은 상태` },
+        { text: `·기온: 밤사이 최저 ${res.night_min_temp}℃(${hourOnlyKo(res.night_min_time) || ''}) → 노면이 영하로 차가워진 상태` },
         { text: `·비·눈: ${hourRangeKo(res.precip_start_time, res.precip_end_time)} ${precipPhrase(res.precip_kinds)}, `
-          + `기온 ${tempRangeKo(res.precip_min_temp, res.precip_max_temp)} ·습도: ${res.precip_avg_rh}% → 비·눈이 마르지 않고 노면에 닿음`, trimmable: true },
-        { text: '→ 식은 노면에 닿는 즉시 얼 가능성 높음' },
+          + `기온 ${tempRangeKo(res.precip_min_temp, res.precip_max_temp)} → 비·눈이 마르지 않고 노면에 닿음`, trimmable: true },
+        { text: `·습도: ${res.precip_avg_rh}%` },
+        { text: '→ 차가워진 노면에 닿는 즉시 얼 가능성 높음' },
       ]);
     }
     return composeWithLimit([
       { text: headerLine },
       { text: `·비: 어제 ${hourRangeKo(res.rain_start_time, res.last_rain_time)}(${res.eve_rain_hours}시간) → 노면이 젖은 채 밤을 맞음` },
       { text: `·기온: 새벽 최저 ${res.morning_min_temp}℃(${hourOnlyKo(res.morning_min_time) || ''}), `
-        + `${hourRangeKo(res.freeze_start_time, res.freeze_end_time)} 영하 ·습도: ${res.morning_min_rh}% → 노면이 마르지 않음`, trimmable: true },
-      { text: `·날씨: ${res.morning_min_sky || '-'}·바람 ${res.freeze_avg_wind}m/s → 노면이 더 빨리 식음` },
+        + `${hourRangeKo(res.freeze_start_time, res.freeze_end_time)} 영하 → 노면이 마르지 않음`, trimmable: true },
+      { text: `·습도: ${res.morning_min_rh}%` },
+      { text: `·날씨: ${res.morning_min_sky || '-'}·바람 ${res.freeze_avg_wind}m/s` },
       { text: '→ 젖은 노면이 그대로 얼 가능성 높음' },
     ]);
   }
@@ -239,7 +251,8 @@ function build2Message(res) {
     return composeWithLimit([
       { text: headerLine },
       { text: `·비: 어제 ${hourRangeKo(res.rain_start_time, res.last_rain_time)} → 노면 젖은 상태` },
-      { text: `·기온: 새벽 ${res.c3_temp}℃로 영상이나 습도 ${res.c3_rh}%로 다소 건조, 바람 ${res.c3_wind}m/s`, trimmable: true },
+      { text: `·기온: 새벽 ${res.c3_temp}℃로 영상, 바람 ${res.c3_wind}m/s`, trimmable: true },
+      { text: `·습도: ${res.c3_rh}%로 다소 건조` },
       { text: '·젖은 노면의 물이 마르면서 노면 온도를 떨어뜨림' },
       { text: '→ 기온이 영상이어도 그늘·물고임 구간은 얇게 얼 수 있음' },
     ]);
@@ -264,9 +277,10 @@ function buildCalmMessage(res) {
 function levelBracket(levelName) { return `「${levelName}」`; }
 
 /* ===================== 6. 16:30 ↔ 21:00 비교 → 실제 변경 사유 한 문장 =====================
-   둘 다 있는 값만 비교하고, 우선순위가 높은 변화 하나만 골라 보고한다
-   (하향 사유 등장/소멸 > 비 종료 시각 > 결빙 시작 시각 > 강수 시작 시각 >
-    새벽/밤사이 최저기온 > 판정 유형 변경 > 변화 없음) */
+   "없음→04시"처럼 있고/없음을 시각과 그대로 비교하면 뜻이 통하지 않으므로,
+   레벨이 바뀐 경우는 원인(기온·강수 변화)과 결과(결빙 시작 등)를 한 문장으로 엮어 설명하고,
+   둘 다 실제 값이 있는 시각 비교만 "X→Y로 변경" 형태를 쓴다.
+   우선순위: 하향 사유 등장/소멸 > 레벨 변화(기온/강수 원인) > 세부 시각 변경 > 유형 변경 > 변화 없음 */
 function describeChange(prior, res) {
   const priorDG = new Set(prior.downgrade_types || []);
   const nowDG = new Set(res.downgrade_types || []);
@@ -278,38 +292,57 @@ function describeChange(prior, res) {
   if (removedDG.includes('early_recovery')) return '맑음 예보가 흐림으로 바뀌어 조기 회복 기대 어려움';
   if (removedDG.includes('strong_wind')) return '풍속 전망이 약해져 결빙 지속 가능성 높아짐';
 
-  if (prior.last_rain_time !== res.last_rain_time) {
-    const p = prior.last_rain_time ? hourOnlyKo(prior.last_rain_time) : '없음';
-    const n = res.last_rain_time ? hourOnlyKo(res.last_rain_time) : '없음';
+  const priorLevel = prior.level || 0;
+  if (res.level !== priorLevel) {
+    const up = res.level > priorLevel;
+    const priorT = prior.morning_min_temp;
+    const nowT = res.morning_min_temp;
+    if (priorT != null && nowT != null && priorT !== nowT) {
+      const dir2 = nowT < priorT ? '낮아져' : '높아져';
+      if (res.freeze_start_time) {
+        return `최신 예보에서 새벽 기온이 ${priorT}℃→${nowT}℃로 ${dir2} ${hourOnlyKo(res.freeze_start_time)}경부터 결빙 예상`;
+      }
+      return `최신 예보에서 새벽 기온이 ${priorT}℃→${nowT}℃로 ${dir2} 결빙 가능성이 ${up ? '높아짐' : '낮아짐'}`;
+    }
+    const priorN = prior.night_min_temp;
+    const nowN = res.night_min_temp;
+    if (priorN != null && nowN != null && priorN !== nowN) {
+      const dir2 = nowN < priorN ? '낮아져' : '높아져';
+      return `최신 예보에서 밤사이 기온이 ${priorN}℃→${nowN}℃로 ${dir2} 결빙 가능성이 ${up ? '높아짐' : '낮아짐'}`;
+    }
+    if (prior.last_rain_time && res.last_rain_time && prior.last_rain_time !== res.last_rain_time) {
+      const p = hourOnlyKo(prior.last_rain_time);
+      const n = hourOnlyKo(res.last_rain_time);
+      const dir = (prior.last_rain_ms != null && res.last_rain_ms != null)
+        ? (res.last_rain_ms < prior.last_rain_ms ? '빨라져' : '늦어져') : '바뀌어';
+      return `비가 그치는 시점이 ${p}→${n}로 ${dir} 노면이 ${up ? '더 오래 젖어있을' : '더 빨리 마를'} 것으로 판단`;
+    }
+    return `최신 예보에서 결빙 가능성이 ${up ? '높아짐' : '낮아짐'}`;
+  }
+
+  // 레벨은 같은데 세부 시각이 바뀐 경우 — 둘 다 실제 값이 있을 때만 비교한다
+  if (prior.last_rain_time && res.last_rain_time && prior.last_rain_time !== res.last_rain_time) {
+    const p = hourOnlyKo(prior.last_rain_time);
+    const n = hourOnlyKo(res.last_rain_time);
     const dir = (prior.last_rain_ms != null && res.last_rain_ms != null)
       ? (res.last_rain_ms < prior.last_rain_ms ? '앞당겨짐' : '늦춰짐') : '변경';
     return `비 종료 예상이 ${p}→${n}로 ${dir}`;
   }
 
-  if (prior.freeze_start_time !== res.freeze_start_time) {
-    const p = prior.freeze_start_time ? hourOnlyKo(prior.freeze_start_time) : '없음';
-    const n = res.freeze_start_time ? hourOnlyKo(res.freeze_start_time) : '없음';
+  if (prior.freeze_start_time && res.freeze_start_time && prior.freeze_start_time !== res.freeze_start_time) {
+    const p = hourOnlyKo(prior.freeze_start_time);
+    const n = hourOnlyKo(res.freeze_start_time);
     const dir = (prior.freeze_start_ms != null && res.freeze_start_ms != null)
       ? (res.freeze_start_ms < prior.freeze_start_ms ? '앞당겨짐' : '늦춰짐') : '변경';
     return `결빙 시작 예상이 ${p}→${n}로 ${dir}`;
   }
 
-  if (prior.precip_start_time !== res.precip_start_time) {
-    const p = prior.precip_start_time ? hourOnlyKo(prior.precip_start_time) : '없음';
-    const n = res.precip_start_time ? hourOnlyKo(res.precip_start_time) : '없음';
+  if (prior.precip_start_time && res.precip_start_time && prior.precip_start_time !== res.precip_start_time) {
+    const p = hourOnlyKo(prior.precip_start_time);
+    const n = hourOnlyKo(res.precip_start_time);
     const dir = (prior.precip_start_ms != null && res.precip_start_ms != null)
       ? (res.precip_start_ms < prior.precip_start_ms ? '앞당겨짐' : '늦춰짐') : '변경';
     return `강수 시작 예상이 ${p}→${n}로 ${dir}`;
-  }
-
-  if (prior.morning_min_temp !== res.morning_min_temp && res.morning_min_temp != null) {
-    const dir = (prior.morning_min_temp != null && res.morning_min_temp > prior.morning_min_temp) ? '상승' : '하강';
-    return `새벽 최저기온 예보 ${prior.morning_min_temp}℃→${res.morning_min_temp}℃로 ${dir}`;
-  }
-
-  if (prior.night_min_temp !== res.night_min_temp && res.night_min_temp != null) {
-    const dir = (prior.night_min_temp != null && res.night_min_temp > prior.night_min_temp) ? '상승' : '하강';
-    return `밤사이 최저기온 예보 ${prior.night_min_temp}℃→${res.night_min_temp}℃로 ${dir}`;
   }
 
   const priorTypes = (prior.types || []).slice().sort().join(',');
@@ -563,7 +596,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-  composeWithLimit, pickPrimaryType, hourRangeKo, tempRangeKo,
+  composeWithLimit, pickPrimaryType, hourRangeKo, tempRangeKo, formatBaseKo,
   build1Message, build2Message, buildCalmMessage, build2100Message, describeChange,
   fmtHeaderDate, hourOnlyKo, precipPhrase, loadIcingModule,
   computeTomorrowTarget, winterSeasonLabel, cautionReasonTag, appendIcingLog,
