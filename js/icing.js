@@ -299,6 +299,15 @@ function icingJudge(hours, target) {
   }
 
   const firstFreeze = (A && freeze.length) ? freeze[0].dt : (DS ? (coldPr.length ? coldPr[0].dt : null) : null);
+
+  // ---- 메시지 작성용 보조 통계(판정 로직에는 영향 없음)
+  let morningMinHour = null;
+  morning.forEach(h => { if (morningMinHour === null || h.T < morningMinHour.T) morningMinHour = h; });
+  let nightMinHour = null;
+  night.forEach(h => { if (nightMinHour === null || h.T < nightMinHour.T) nightMinHour = h; });
+  const precipTemps = coldPr.map(h => h.T);
+  const precipRhs = coldPr.map(h => h.RH).filter(v => v !== null && v !== undefined);
+
   const [name, action] = ICING_LEVELS[level];
   return {
     target: icingTargetIso(target),
@@ -329,6 +338,25 @@ function icingJudge(hours, target) {
     precip_start_time: (DS && coldPr.length) ? icingFmtMdH(coldPr[0].dt) : null,
     freeze_start_ms: (A && freeze.length) ? freeze[0].dt : null,
     precip_start_ms: (DS && coldPr.length) ? coldPr[0].dt : null,
+    freeze_end_time: (A && freeze.length) ? icingFmtMdH(freeze[freeze.length - 1].dt) : null,
+    precip_end_time: (DS && coldPr.length) ? icingFmtMdH(coldPr[coldPr.length - 1].dt) : null,
+    rain_start_time: eveRain.length ? icingFmtMdH(eveRain[0].dt) : null,
+    rain_start_ms: eveRain.length ? eveRain[0].dt : null,
+    eve_rain_hours: eveRain.length,
+    morning_min_time: morningMinHour ? icingFmtMdH(morningMinHour.dt) : null,
+    morning_min_rh: (morningMinHour && morningMinHour.RH !== null && morningMinHour.RH !== undefined)
+      ? icingPyRoundHalfEven(morningMinHour.RH, 0) : null,
+    morning_min_sky: (morningMinHour && morningMinHour.sky !== undefined) ? (ICING_SKY_NAME[morningMinHour.sky] || '') : '',
+    night_min_time: nightMinHour ? icingFmtMdH(nightMinHour.dt) : null,
+    precip_min_temp: precipTemps.length ? icingPyRoundHalfEven(Math.min(...precipTemps), 0) : null,
+    precip_max_temp: precipTemps.length ? icingPyRoundHalfEven(Math.max(...precipTemps), 0) : null,
+    precip_avg_rh: precipRhs.length ? icingPyRoundHalfEven(precipRhs.reduce((s, v) => s + v, 0) / precipRhs.length, 0) : null,
+    c3_min_wetbulb: wbMin === null ? null : icingPyRoundHalfEven(wbMin, 1),
+    c3_temp: wbMinHour ? icingPyRoundHalfEven(wbMinHour.T, 0) : null,
+    c3_rh: (wbMinHour && wbMinHour.RH !== null && wbMinHour.RH !== undefined)
+      ? icingPyRoundHalfEven(wbMinHour.RH, 0) : null,
+    c3_wind: (wbMinHour && wbMinHour.wsd !== null && wbMinHour.wsd !== undefined)
+      ? icingPyRoundHalfEven(wbMinHour.wsd, 1) : null,
   };
 }
 

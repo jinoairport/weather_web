@@ -86,14 +86,6 @@ function fmtHeaderDate(targetIso) {
   return `${m}/${d}(${dow})`;
 }
 
-/* "MM/DD HH시" -> "DD일 HH시" (시각은 2자리 그대로 유지) */
-function dayHourKo(mdH) {
-  if (!mdH) return null;
-  const m = mdH.match(/^(\d{2})\/(\d{2}) (\d{2})시$/);
-  if (!m) return mdH;
-  return `${parseInt(m[2], 10)}일 ${m[3]}시`;
-}
-
 /* "MM/DD HH시" -> "HH시" (2자리 그대로, 예: "04시") */
 function hourOnlyKo(mdH) {
   if (!mdH) return null;
@@ -138,72 +130,124 @@ function composeWithLimit(lines, limit) {
   return full();
 }
 
-/* ===================== 5. 메시지 조합 (16:30) ===================== */
-function buildRiskCauseAndPlan(res) {
-  /* 결빙형/강수형 중 어떤 문구를 쓸지 — 둘 다 해당하면 결빙 시작이 빠른 쪽 */
+/* ===================== 5. 메시지 조합 (16:30/수동, 1통·2통) =====================
+   1통 = 예상·조치, 2통 = 판정 근거(쉬운 말 + 수치). 둘 다 200자 이내,
+   "나에게 보내기"로 연달아 보낸다. 자회사 단톡방에 그대로 공유되므로
+   전문 용어(이슬점·습구온도·복사냉각·"결빙형/강수형" 등 내부 용어)는 쓰지 않는다. */
+
+/* 결빙형/강수형 중 어떤 문구를 쓸지 — 둘 다 해당하면 결빙 시작이 빠른 쪽 */
+function pickPrimaryType(res) {
   const hasA = res.types.includes('결빙형');
   const hasDS = res.types.includes('강수형');
-  let useA = hasA;
   if (hasA && hasDS) {
-    useA = (res.freeze_start_ms != null && res.precip_start_ms != null)
-      ? res.freeze_start_ms <= res.precip_start_ms
-      : hasA;
+    return (res.freeze_start_ms != null && res.precip_start_ms != null)
+      ? (res.freeze_start_ms <= res.precip_start_ms ? 'A' : 'DS') : 'A';
   }
-
-  if (useA) {
-    return {
-      cause: `${dayHourKo(res.last_rain_time) || '전날'}까지 내린 비로 노면이 젖은 상태에서 `
-        + `새벽 기온 ${res.morning_min_temp}℃까지 하강`,
-      expect: `${hourOnlyKo(res.freeze_start_time) || '새벽'}경부터 노면 결빙, `
-        + `일출(${res.sunrise}) 이후 해소`,
-      action: '제설제 살포인원 05시 조기출근, 결빙 취약구간 제설제 사전 살포',
-    };
-  }
-  const precipTemp = (res.criteria && res.criteria.DS_precip_temp != null) ? res.criteria.DS_precip_temp : 2;
-  return {
-    cause: `밤사이 ${res.night_min_temp}℃로 노면이 냉각된 상태에서 `
-      + `${hourOnlyKo(res.precip_start_time) || '새벽'}경부터 0~${precipTemp}℃의 `
-      + `${precipPhrase(res.precip_kinds)} 예보`,
-    expect: '강수와 동시에 노면 결빙',
-    action: '제설제 살포인원 05시 조기출근, 강수 시작 즉시 취약구간 제설제 살포',
-  };
+  if (hasA) return 'A';
+  if (hasDS) return 'DS';
+  return null;
 }
 
-function buildCautionCauseAndAction(res) {
-  if (res.downgrade_types.includes('early_recovery')) {
-    return {
-      cause: `비 그친 뒤 새벽 ${res.morning_min_temp}℃까지 하강하나, `
-        + `맑은 날씨·이른 일출(${res.sunrise})로 일출 전후 노면 회복 예상`,
-      action: '조기출근 없음, 출근 즉시 결빙 취약구간 순찰 후 결빙 시 국부 살포',
-    };
-  }
-  // strong_wind (또는 그 외 알 수 없는 하향 사유 — 안전하게 강풍 문구로 폴백)
-  return {
-    cause: `비 그친 뒤 새벽 ${res.morning_min_temp}℃까지 하강하나, `
-      + `강풍(평균 ${res.freeze_avg_wind}m/s)으로 노면이 빨리 말라 결빙 가능성 낮음`,
-    action: '조기출근 없음, 출근 즉시 결빙 취약구간 순찰 후 결빙 시 국부 살포',
-  };
+/* "MM/DD HH시" 두 개를 "04~07시"(같으면 "04시") 형태로 — 시각 두 자리 유지 */
+function hourRangeKo(startMdH, endMdH) {
+  const sm = startMdH && startMdH.match(/(\d{2})시$/);
+  const em = endMdH && endMdH.match(/(\d{2})시$/);
+  if (!sm && !em) return '';
+  if (!sm) return `${em[1]}시`;
+  if (!em || sm[1] === em[1]) return `${sm[1]}시`;
+  return `${sm[1]}~${em[1]}시`;
 }
 
-function build1630Message(res) {
+function tempRangeKo(min, max) {
+  if (min == null && max == null) return '';
+  if (min == null) return `${max}℃`;
+  if (max == null) return `${min}℃`;
+  return min === max ? `${min}℃` : `${min}~${max}℃`;
+}
+
+function build1Message(res) {
   const header = fmtHeaderDate(res.target);
   if (res.level === 3) {
-    const { cause, expect, action } = buildRiskCauseAndPlan(res);
+    const primary = pickPrimaryType(res);
+    const expect = primary === 'DS'
+      ? `${hourOnlyKo(res.precip_start_time) || '새벽'}경 ${precipPhrase(res.precip_kinds)}가 시작되면 바로 노면 결빙 예상`
+      : `${hourOnlyKo(res.freeze_start_time) || '새벽'}경부터 노면 결빙(블랙아이스), 일출(${res.sunrise}) 후 해소 예상`;
     return composeWithLimit([
       { text: `[김해공항 노면결빙 예보] ${header} 새벽 「위험」` },
-      { text: `■원인: ${cause}`, trimmable: true },
       { text: `■예상: ${expect}` },
-      { text: `■조치: ${action}` },
-      { text: '※21시 재판정 결과 추가 통보' },
+      { text: '■조치: 제설제 살포인원 05시 조기출근 → 결빙 취약구간(그늘·물고임·보도) 제설제 사전 살포, 06시 승객 보행 전 완료 후 결과 단톡방 공유' },
+      { text: '※21시 재판정 결과 추가 통보 예정' },
     ]);
   }
-  // level === 2 (주의)
-  const { cause, action } = buildCautionCauseAndAction(res);
+  // level === 2 (주의) — 사유와 관계없이 공통 문구
   return composeWithLimit([
     { text: `[김해공항 노면결빙 예보] ${header} 새벽 「주의」` },
-    { text: `■원인: ${cause}`, trimmable: true },
-    { text: `■조치: ${action}` },
-    { text: '※21시 재판정에서 「위험」 상향 시 05시 조기출근 전환' },
+    { text: `■예상: 05~07시 취약구간 얇은 결빙 가능(일출 ${res.sunrise}, 06시 승객 보행 전 확인 필요)` },
+    { text: '■조치: 추가 인원 조기출근 없음. 야간 점검자가 05시경 취약구간(그늘·물고임·보도) 순찰 → 결빙 시 국부 살포·단톡방 보고, 범위가 넓으면 살포인원 호출' },
+    { text: '※21시 재판정 결과 추가 통보 예정' },
+  ]);
+}
+
+/* 09시 기온 — early_recovery 하향 사유 문구("09시 5℃")에서 그대로 추출(판정 로직에 새 필드 추가 없이 재사용) */
+function extractRecoverTemp09(res) {
+  const d = (res.downgrades || []).find(x => x.includes('조기 회복'));
+  const m = d && d.match(/09시 (-?\d+)℃/);
+  return m ? m[1] : null;
+}
+
+function build2Message(res) {
+  const headerLine = `[판정 근거] 기상청 예보(${res.base})`;
+
+  if (res.level === 3) {
+    const primary = pickPrimaryType(res);
+    if (primary === 'DS') {
+      return composeWithLimit([
+        { text: headerLine },
+        { text: `·기온: 밤사이 최저 ${res.night_min_temp}℃(${hourOnlyKo(res.night_min_time) || ''}) → 노면이 식은 상태` },
+        { text: `·비·눈: ${hourRangeKo(res.precip_start_time, res.precip_end_time)} ${precipPhrase(res.precip_kinds)}, `
+          + `기온 ${tempRangeKo(res.precip_min_temp, res.precip_max_temp)} ·습도: ${res.precip_avg_rh}% → 비·눈이 마르지 않고 노면에 닿음`, trimmable: true },
+        { text: '→ 식은 노면에 닿는 즉시 얼 가능성 높음' },
+      ]);
+    }
+    return composeWithLimit([
+      { text: headerLine },
+      { text: `·비: 어제 ${hourRangeKo(res.rain_start_time, res.last_rain_time)}(${res.eve_rain_hours}시간) → 노면이 젖은 채 밤을 맞음` },
+      { text: `·기온: 새벽 최저 ${res.morning_min_temp}℃(${hourOnlyKo(res.morning_min_time) || ''}), `
+        + `${hourRangeKo(res.freeze_start_time, res.freeze_end_time)} 영하 ·습도: ${res.morning_min_rh}% → 노면이 마르지 않음`, trimmable: true },
+      { text: `·날씨: ${res.morning_min_sky || '-'}·바람 ${res.freeze_avg_wind}m/s → 노면이 더 빨리 식음` },
+      { text: '→ 젖은 노면이 그대로 얼 가능성 높음' },
+    ]);
+  }
+
+  // level === 2 (주의) — 사유별로 다른 근거
+  if (res.downgrade_types.includes('early_recovery')) {
+    return composeWithLimit([
+      { text: headerLine },
+      { text: `·비 그친 뒤 노면이 젖은 채 새벽 ${res.morning_min_temp}℃까지 하강`, trimmable: true },
+      { text: `·다만: 일출 ${res.sunrise}로 이르고 아침 맑음, 09시 ${extractRecoverTemp09(res) || ''}℃ → 얼더라도 오래가지 않을 것으로 판단` },
+    ]);
+  }
+  if (res.downgrade_types.includes('strong_wind')) {
+    return composeWithLimit([
+      { text: headerLine },
+      { text: `·비 그친 뒤 노면이 젖은 채 새벽 ${res.morning_min_temp}℃까지 하강`, trimmable: true },
+      { text: `·다만: 바람 ${res.freeze_avg_wind}m/s로 강해 노면이 빨리 마름 → 결빙 범위 작을 것으로 판단` },
+    ]);
+  }
+  if (res.types.includes('증발냉각')) {
+    return composeWithLimit([
+      { text: headerLine },
+      { text: `·비: 어제 ${hourRangeKo(res.rain_start_time, res.last_rain_time)} → 노면 젖은 상태` },
+      { text: `·기온: 새벽 ${res.c3_temp}℃로 영상이나 습도 ${res.c3_rh}%로 다소 건조, 바람 ${res.c3_wind}m/s`, trimmable: true },
+      { text: '·젖은 노면의 물이 마르면서 노면 온도를 떨어뜨림' },
+      { text: '→ 기온이 영상이어도 그늘·물고임 구간은 얇게 얼 수 있음' },
+    ]);
+  }
+  // 그 외(알 수 없는 사유) — 안전한 일반 문구로 폴백
+  return composeWithLimit([
+    { text: headerLine },
+    { text: `·비 그친 뒤 노면이 젖은 채 새벽 ${res.morning_min_temp}℃까지 하강`, trimmable: true },
+    { text: '·다만: 예보상 결빙 가능성이 낮아지는 요인이 있어 주의 단계로 판단' },
   ]);
 }
 
@@ -276,33 +320,25 @@ function describeChange(prior, res) {
   return '예보 갱신 — 이전 판정과 조건 동일';
 }
 
-function build2100Message(kind, res, prior) {
+function build2100Message(res, prior) {
   const header = fmtHeaderDate(res.target);
-  if (kind === 'new') {
-    // 16:30 형식과 같되 첫 줄 끝에 "(21시 신규)"를 붙인다
-    const base = build1630Message(res);
-    const lines = base.split('\n');
-    lines[0] = lines[0] + '(21시 신규)';
-    return lines.join('\n');
+  const priorLevel = prior ? prior.level : 0;
+  const priorName = prior ? prior.level_name : '정상';
+  const dir = res.level > priorLevel ? '상향' : (res.level < priorLevel ? '하향' : '유지');
+
+  let action;
+  if (res.level === 3) {
+    action = priorLevel === 3 ? '05시 조기출근 유지' : '제설제 살포인원 05시 조기출근으로 변경';
+  } else if (priorLevel === 3) {
+    action = '05시 조기출근 취소, 야간 점검자 05시경 순찰로 변경';
+  } else if (res.level <= 1) {
+    action = '결빙 가능성 낮아져 조기출근·순찰 해제';
+  } else {
+    action = '조기출근 없음, 출근 즉시 순찰 유지';
   }
 
-  let title, action;
-  if (kind === 'up') {
-    title = `${header} 새벽 ${levelBracket(prior.level_name)}→${levelBracket(res.level_name)} 상향`;
-    action = res.level === 3
-      ? '제설제 살포인원 05시 조기출근으로 전환'
-      : '조기출근 없음, 출근 즉시 순찰 유지';
-  } else if (kind === 'down') {
-    title = `${header} 새벽 ${levelBracket(prior.level_name)}→${levelBracket(res.level_name)} 하향`;
-    action = res.level === 2
-      ? '05시 조기출근 취소, 출근 즉시 순찰'
-      : '결빙 가능성 낮아져 조기출근·순찰 해제';
-  } else { // keep
-    title = `${header} 새벽 ${levelBracket(res.level_name)} 유지`;
-    action = res.level === 3 ? '05시 조기출근 유지' : '조기출근 없음, 출근 즉시 순찰 유지';
-  }
-
-  const cause = describeChange(prior, res);
+  const cause = describeChange(prior || {}, res);
+  const title = `${header} 새벽 ${levelBracket(priorName)}→${levelBracket(res.level_name)} ${dir}`;
 
   return composeWithLimit([
     { text: '[김해공항 노면결빙 예보] 21시 재판정' },
@@ -381,12 +417,12 @@ function updateGithubSecret(name, value) {
 }
 
 /* ===================== 9. 카카오 "나에게 보내기" 전송 ===================== */
-async function sendKakaoMemo(accessToken, text) {
+async function sendKakaoMemo(accessToken, text, buttonTitle) {
   const template = {
     object_type: 'text',
     text,
     link: { web_url: LINK, mobile_web_url: LINK },
-    button_title: '상세 판정 보기',
+    button_title: buttonTitle || '결빙예측 페이지',
   };
   const resp = await fetch('https://kapi.kakao.com/v2/api/talk/memo/default/send', {
     method: 'POST',
@@ -440,30 +476,26 @@ async function main() {
   console.log(`판정 단계: ${res.level_name}`);
 
   let shouldSend = false;
-  let message = null;
+  let messages = null; // [[text, buttonTitle], ...] — 순서대로 연달아 발송
 
   if (isManual) {
     shouldSend = true;
-    message = res.level >= 2 ? build1630Message(res) : buildCalmMessage(res);
+    messages = res.level >= 2
+      ? [[build1Message(res), '결빙예측 페이지'], [build2Message(res), '시간별 그래프 보기']]
+      : [[buildCalmMessage(res), '결빙예측 페이지']];
   } else if (slot === 'eve') {
     shouldSend = res.level >= 2;
-    if (shouldSend) message = build1630Message(res);
+    if (shouldSend) {
+      messages = [[build1Message(res), '결빙예측 페이지'], [build2Message(res), '시간별 그래프 보기']];
+    }
   } else {
-    // night
+    // night — 21시 재판정은 1통만
     const prior = loadPriorState();
     const priorRisk = prior ? prior.level >= 2 : false;
     const nowRisk = res.level >= 2;
-    let kind = null;
-    if (!prior) {
-      kind = nowRisk ? 'new' : null;
-    } else if (!priorRisk && nowRisk) {
-      kind = 'new';
-    } else if (priorRisk) {
-      kind = res.level > prior.level ? 'up' : (res.level < prior.level ? 'down' : 'keep');
-    }
-    if (kind) {
+    if (priorRisk || nowRisk) {
       shouldSend = true;
-      message = build2100Message(kind, res, prior);
+      messages = [[build2100Message(res, prior), '결빙예측 페이지']];
     }
   }
 
@@ -476,7 +508,10 @@ async function main() {
   }
 
   const accessToken = await refreshKakaoToken(kakaoRestKey, kakaoClientSecret, kakaoRefreshToken);
-  await sendKakaoMemo(accessToken, message);
+  for (const [text, buttonTitle] of messages) {
+    // eslint-disable-next-line no-await-in-loop
+    await sendKakaoMemo(accessToken, text, buttonTitle);
+  }
 }
 
 if (require.main === module) {
@@ -484,8 +519,8 @@ if (require.main === module) {
 }
 
 module.exports = {
-  composeWithLimit, buildRiskCauseAndPlan, buildCautionCauseAndAction,
-  build1630Message, buildCalmMessage, build2100Message, describeChange,
-  fmtHeaderDate, dayHourKo, hourOnlyKo, precipPhrase, loadIcingModule,
+  composeWithLimit, pickPrimaryType, hourRangeKo, tempRangeKo,
+  build1Message, build2Message, buildCalmMessage, build2100Message, describeChange,
+  fmtHeaderDate, hourOnlyKo, precipPhrase, loadIcingModule,
   computeTomorrowTarget,
 };
