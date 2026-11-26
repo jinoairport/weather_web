@@ -15,7 +15,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   notify:
@@ -59,6 +59,28 @@ jobs:
           ICING_SLOT: ${{ steps.ctx.outputs.slot }}
           ICING_IS_MANUAL: ${{ steps.ctx.outputs.is_manual }}
         run: node scripts/icing-notify.js
+
+      - name: 판정 기록 커밋·push (master에만 — main에는 올리지 않음, 충돌 시 재시도)
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/icing-log/
+          if git diff --cached --quiet; then
+            echo "변경 없음 — 커밋 건너뜀"
+            exit 0
+          fi
+          git commit -m "chore: 결빙 판정 결과 자동 기록"
+          for i in 1 2 3; do
+            if git pull --rebase origin master && git push origin HEAD:master; then
+              echo "push 성공(시도 $i/3)"
+              exit 0
+            fi
+            echo "push 실패(시도 $i/3)"
+            sleep 5
+          done
+          echo "::error::판정 기록 push 3회 재시도 후에도 실패 — 카카오 발송 결과와는 별개로 이 실행은 실패 처리합니다."
+          exit 1
 
       - name: 16:30 판정 결과 저장 (21시 비교용)
         if: steps.ctx.outputs.slot == 'eve'
