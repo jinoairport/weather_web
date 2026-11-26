@@ -1,0 +1,18 @@
+[
+ {
+  "executed_at": "2026-11-26 16:44",
+  "slot": "eve",
+  "is_manual": true,
+  "target": "2026-11-27",
+  "level": 0,
+  "level_name": "정상",
+  "caution_reason": null,
+  "forecast_base": "11/26 05:00 발표",
+  "morning_min_temp": 7,
+  "night_min_temp": 7,
+  "last_rain_time": null,
+  "freeze_start_time": null,
+  "precip_start_time": null,
+  "sent": true
+ }
+]
