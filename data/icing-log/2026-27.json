@@ -30,5 +30,21 @@
   "freeze_start_time": null,
   "precip_start_time": null,
   "sent": false
+ },
+ {
+  "executed_at": "2026-11-27 05:34",
+  "slot": "eve",
+  "is_manual": false,
+  "target": "2026-11-28",
+  "level": 0,
+  "level_name": "정상",
+  "caution_reason": null,
+  "forecast_base": "11/26 20:00 발표",
+  "morning_min_temp": 8,
+  "night_min_temp": 8,
+  "last_rain_time": null,
+  "freeze_start_time": null,
+  "precip_start_time": null,
+  "sent": false
  }
 ]
