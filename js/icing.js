@@ -20,10 +20,13 @@ const ICING_CONFIG = {
   DS_night_min_temp: 0.0,
   DS_precip_temp: 2.0,
   DS_min_precip_hours: 2,
-  DS_max_dep: 3.5,
+  DS_max_dep: 4.5,
   early_sunrise: '07:00',
   recover_temp_09: 3.0,
   strong_wind_ms: 6.0,
+  C3_wetbulb_freeze: 0.0,
+  C3_rh_clamp_min: 5.0,
+  C3_rh_clamp_max: 99.0,
   watch_temp: 2.0,
   lat: 35.1795, lon: 128.9382,
 };
@@ -158,6 +161,16 @@ function icingIsPrecip(h) {
   return (h.pty || 0) > 0 || (h.pcp || 0) > 0;
 }
 
+/* Stull(2011) 근사식으로 습구온도 계산 (RH는 5~99%로 제한) — icing_rules.py wetbulb()와 동일 */
+function icingWetbulb(t, rh) {
+  if (t === null || t === undefined || rh === null || rh === undefined) return null;
+  const rhC = Math.min(Math.max(rh, ICING_CONFIG.C3_rh_clamp_min), ICING_CONFIG.C3_rh_clamp_max);
+  return t * Math.atan(0.151977 * Math.sqrt(rhC + 8.313659))
+    + Math.atan(t + rhC) - Math.atan(rhC - 1.676331)
+    + 0.00391838 * Math.pow(rhC, 1.5) * Math.atan(0.023101 * rhC)
+    - 4.686035;
+}
+
 /* ===================== 판정 (icing_rules.py judge() 포팅) =====================
    hours: [{dt: KST epoch ms, T, RH, pty, pcp, wsd, sky, src}, ...]
    target: {y, mo, d} */
@@ -170,7 +183,8 @@ function icingJudge(hours, target) {
   hours.forEach(h => {
     if (h.T === null || h.T === undefined) return;
     const Td = icingDewpoint(h.T, h.RH);
-    by[h.dt] = Object.assign({}, h, { Td, dep: Td === null ? null : (h.T - Td) });
+    const Tw = icingWetbulb(h.T, h.RH);
+    by[h.dt] = Object.assign({}, h, { Td, dep: Td === null ? null : (h.T - Td), Tw });
   });
 
   function rng(a, b) {
@@ -231,10 +245,35 @@ function icingJudge(hours, target) {
     ],
   });
 
+  // ---- 증발냉각(주의) — 기온은 영상이지만 젖은 노면이 마르며 노면 온도를 떨어뜨리는 경우
+  const afterLastRainMorning = morning.filter(h => last === null || h.dt > last);
+  let wbMinHour = null;
+  afterLastRainMorning.forEach(h => {
+    if (h.Tw !== null && h.Tw !== undefined && (wbMinHour === null || h.Tw < wbMinHour.Tw)) wbMinHour = h;
+  });
+  const wbMin = wbMinHour ? wbMinHour.Tw : null;
+  const C3 = eveRain.length >= c.A_min_rain_hours && lastHourOk
+    && wbMin !== null && wbMin <= c.C3_wetbulb_freeze;
+  checks.push({
+    type: '증발냉각', met: !!C3,
+    items: [
+      ['전날 오후·저녁 비', eveRain.length >= c.A_min_rain_hours,
+        `${eveRain.length}시간 (기준 ${c.A_min_rain_hours}시간 이상)`],
+      ['비가 늦게 그침', lastHourOk,
+        `마지막 강수 ${last !== null ? icingFmtMdH(last) : '없음'} (기준 ${c.A_last_rain_hour}시 이후)`],
+      ['습구온도 영하', wbMin !== null && wbMin <= c.C3_wetbulb_freeze,
+        wbMin !== null ? `00~08시 최저 습구온도 ${icingPyFixed(wbMin, 1)}℃ (기준 ${icingPyFixed(c.C3_wetbulb_freeze, 0)}℃ 이하)` : '해당 시간 없음'],
+    ],
+  });
+
   // ---- 단계 결정
   let level = (A || DS) ? 3 : 0;
   const downs = [];
+  const downgrade_types = []; // 메시지 조합용 — 판정 자체에는 쓰이지 않는 부가 태그
   const sr = icingSunrise(d0, c.lat, c.lon);
+  // 결빙 시간대(freeze) 평균풍속 — 하향 임계값을 넘든 안 넘든 메시지용으로 항상 계산해둔다(판정 분기는 그대로)
+  const freezeWinds = freeze.map(h => h.wsd).filter(v => v !== null && v !== undefined);
+  const freezeAvgWind = freezeWinds.length ? freezeWinds.reduce((s, v) => s + v, 0) / freezeWinds.length : null;
   if (level === 3) {
     const t09 = by[d0 + 9 * H];
     const skies = [7, 8, 9].map(k => (by[d0 + k * H] || {}).sky).filter(s => s !== undefined);
@@ -244,13 +283,15 @@ function icingJudge(hours, target) {
     if (early && clear && warm && !DS) {
       level = 2;
       downs.push(`일출 ${icingFmtHm(sr)}로 이르고 07~09시 맑음, 09시 ${icingPyFixed(t09.T, 0)}℃ → 노면 조기 회복 예상`);
+      downgrade_types.push('early_recovery');
     }
-    const winds = freeze.map(h => h.wsd).filter(v => v !== null && v !== undefined);
-    if (A && !DS && winds.length && (winds.reduce((s, v) => s + v, 0) / winds.length) >= c.strong_wind_ms) {
+    if (A && !DS && freezeWinds.length && freezeAvgWind >= c.strong_wind_ms) {
       level = Math.min(level, 2);
-      const avg = winds.reduce((s, v) => s + v, 0) / winds.length;
-      downs.push(`결빙 시간대 평균풍속 ${icingPyFixed(avg, 1)}m/s → 노면 건조 빠름`);
+      downs.push(`결빙 시간대 평균풍속 ${icingPyFixed(freezeAvgWind, 1)}m/s → 노면 건조 빠름`);
+      downgrade_types.push('strong_wind');
     }
+  } else if (C3) {
+    level = 2;
   } else {
     const near = tminNight !== null && tminNight <= c.watch_temp
       && eve.concat(day.slice(0, 10)).some(h => icingIsPrecip(h));
@@ -258,6 +299,15 @@ function icingJudge(hours, target) {
   }
 
   const firstFreeze = (A && freeze.length) ? freeze[0].dt : (DS ? (coldPr.length ? coldPr[0].dt : null) : null);
+
+  // ---- 메시지 작성용 보조 통계(판정 로직에는 영향 없음)
+  let morningMinHour = null;
+  morning.forEach(h => { if (morningMinHour === null || h.T < morningMinHour.T) morningMinHour = h; });
+  let nightMinHour = null;
+  night.forEach(h => { if (nightMinHour === null || h.T < nightMinHour.T) nightMinHour = h; });
+  const precipTemps = coldPr.map(h => h.T);
+  const precipRhs = coldPr.map(h => h.RH).filter(v => v !== null && v !== undefined);
+
   const [name, action] = ICING_LEVELS[level];
   return {
     target: icingTargetIso(target),
@@ -275,6 +325,38 @@ function icingJudge(hours, target) {
       sky: h.sky === undefined ? null : h.sky, sky_name: ICING_SKY_NAME[h.sky] || '',
       src: h.src || '',
     })),
+    /* ---- 아래부터는 메시지 작성용으로 추가한 항목(판정 로직에는 영향 없음) ---- */
+    downgrade_types,
+    sunrise_ms: sr,
+    last_rain_ms: last,
+    last_rain_time: last !== null ? icingFmtMdH(last) : null,
+    morning_min_temp: morning.length ? icingPyRoundHalfEven(Math.min(...morning.map(h => h.T)), 0) : null,
+    night_min_temp: tminNight === null ? null : icingPyRoundHalfEven(tminNight, 0),
+    precip_kinds: kinds,
+    freeze_avg_wind: freezeAvgWind === null ? null : icingPyRoundHalfEven(freezeAvgWind, 1),
+    freeze_start_time: (A && freeze.length) ? icingFmtMdH(freeze[0].dt) : null,
+    precip_start_time: (DS && coldPr.length) ? icingFmtMdH(coldPr[0].dt) : null,
+    freeze_start_ms: (A && freeze.length) ? freeze[0].dt : null,
+    precip_start_ms: (DS && coldPr.length) ? coldPr[0].dt : null,
+    freeze_end_time: (A && freeze.length) ? icingFmtMdH(freeze[freeze.length - 1].dt) : null,
+    precip_end_time: (DS && coldPr.length) ? icingFmtMdH(coldPr[coldPr.length - 1].dt) : null,
+    rain_start_time: eveRain.length ? icingFmtMdH(eveRain[0].dt) : null,
+    rain_start_ms: eveRain.length ? eveRain[0].dt : null,
+    eve_rain_hours: eveRain.length,
+    morning_min_time: morningMinHour ? icingFmtMdH(morningMinHour.dt) : null,
+    morning_min_rh: (morningMinHour && morningMinHour.RH !== null && morningMinHour.RH !== undefined)
+      ? icingPyRoundHalfEven(morningMinHour.RH, 0) : null,
+    morning_min_sky: (morningMinHour && morningMinHour.sky !== undefined) ? (ICING_SKY_NAME[morningMinHour.sky] || '') : '',
+    night_min_time: nightMinHour ? icingFmtMdH(nightMinHour.dt) : null,
+    precip_min_temp: precipTemps.length ? icingPyRoundHalfEven(Math.min(...precipTemps), 0) : null,
+    precip_max_temp: precipTemps.length ? icingPyRoundHalfEven(Math.max(...precipTemps), 0) : null,
+    precip_avg_rh: precipRhs.length ? icingPyRoundHalfEven(precipRhs.reduce((s, v) => s + v, 0) / precipRhs.length, 0) : null,
+    c3_min_wetbulb: wbMin === null ? null : icingPyRoundHalfEven(wbMin, 1),
+    c3_temp: wbMinHour ? icingPyRoundHalfEven(wbMinHour.T, 0) : null,
+    c3_rh: (wbMinHour && wbMinHour.RH !== null && wbMinHour.RH !== undefined)
+      ? icingPyRoundHalfEven(wbMinHour.RH, 0) : null,
+    c3_wind: (wbMinHour && wbMinHour.wsd !== null && wbMinHour.wsd !== undefined)
+      ? icingPyRoundHalfEven(wbMinHour.wsd, 1) : null,
   };
 }
 
@@ -352,46 +434,6 @@ async function icingCollectHours(target, forecastHourlyRows) {
   return Object.keys(hours).map(Number).sort((a, b) => a - b).map(ms => hours[ms]);
 }
 
-/* ===================== 판정 기록 (localStorage 로그 + CSV 다운로드) ===================== */
-const ICING_LOG_KEY = 'icing_log';
-
-function icingLoadLog() {
-  try { return JSON.parse(localStorage.getItem(ICING_LOG_KEY) || '[]'); }
-  catch (e) { return []; }
-}
-
-function icingAppendLog(res, baseDisplay) {
-  try {
-    const log = icingLoadLog();
-    log.push({
-      판정시각: icingFmtDateTime(icingKstNowMs()),
-      예보발표: baseDisplay || '',
-      대상일: res.target,
-      단계: res.level_name,
-      유형: res.types.join('/'),
-      하향사유: res.downgrades.join('; '),
-    });
-    localStorage.setItem(ICING_LOG_KEY, JSON.stringify(log));
-  } catch (e) {}
-}
-
-function icingDownloadLogCsv() {
-  const log = icingLoadLog();
-  const header = ['판정시각', '예보발표', '대상일', '단계', '유형', '하향사유'];
-  const esc = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
-  const lines = [header.join(',')].concat(log.map(r => header.map(k => esc(r[k])).join(',')));
-  const csv = '﻿' + lines.join('\r\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = '판정기록.csv';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
 /* ===================== 메인 진입점 ===================== */
 /* target이 없으면 기본 대상일(정오 이후 내일, 그 전 오늘) 사용.
    반환값은 icing_rules.py judge() 결과에 base/grid/now/default_target/criteria를 더한 것
@@ -412,6 +454,20 @@ async function icingRunJudge(target) {
   delete res.criteria.lat;
   delete res.criteria.lon;
 
-  icingAppendLog(res, res.base);
   return res;
+}
+
+/* ===================== Node 환경 내보내기 =====================
+   브라우저(<script> 태그)에서는 module이 없으므로 이 블록은 실행되지 않는다 —
+   사이트(icing.html) 동작에는 아무 영향이 없다. GitHub Actions 등 Node에서
+   이 파일을 재사용(판정 로직을 복사/수정하지 않고 그대로)할 때만 쓰인다. */
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    ICING_CONFIG, ICING_LEVELS, ICING_PTY_NAME, ICING_SKY_NAME,
+    icingKstNowMs, icingKstMs, icingKstDateParts, icingDefaultTarget,
+    icingTargetToMs, icingTargetIso, icingFmtMdH, icingFmtHm, icingFmtDateTime,
+    icingDewpoint, icingWetbulb, icingSunrise, icingJudge,
+    icingCollectHours, icingFetchObsHour,
+    icingRunJudge,
+  };
 }
