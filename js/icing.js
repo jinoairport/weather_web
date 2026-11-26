@@ -20,10 +20,13 @@ const ICING_CONFIG = {
   DS_night_min_temp: 0.0,
   DS_precip_temp: 2.0,
   DS_min_precip_hours: 2,
-  DS_max_dep: 3.5,
+  DS_max_dep: 4.5,
   early_sunrise: '07:00',
   recover_temp_09: 3.0,
   strong_wind_ms: 6.0,
+  C3_wetbulb_freeze: 0.0,
+  C3_rh_clamp_min: 5.0,
+  C3_rh_clamp_max: 99.0,
   watch_temp: 2.0,
   lat: 35.1795, lon: 128.9382,
 };
@@ -158,6 +161,16 @@ function icingIsPrecip(h) {
   return (h.pty || 0) > 0 || (h.pcp || 0) > 0;
 }
 
+/* Stull(2011) 근사식으로 습구온도 계산 (RH는 5~99%로 제한) — icing_rules.py wetbulb()와 동일 */
+function icingWetbulb(t, rh) {
+  if (t === null || t === undefined || rh === null || rh === undefined) return null;
+  const rhC = Math.min(Math.max(rh, ICING_CONFIG.C3_rh_clamp_min), ICING_CONFIG.C3_rh_clamp_max);
+  return t * Math.atan(0.151977 * Math.sqrt(rhC + 8.313659))
+    + Math.atan(t + rhC) - Math.atan(rhC - 1.676331)
+    + 0.00391838 * Math.pow(rhC, 1.5) * Math.atan(0.023101 * rhC)
+    - 4.686035;
+}
+
 /* ===================== 판정 (icing_rules.py judge() 포팅) =====================
    hours: [{dt: KST epoch ms, T, RH, pty, pcp, wsd, sky, src}, ...]
    target: {y, mo, d} */
@@ -170,7 +183,8 @@ function icingJudge(hours, target) {
   hours.forEach(h => {
     if (h.T === null || h.T === undefined) return;
     const Td = icingDewpoint(h.T, h.RH);
-    by[h.dt] = Object.assign({}, h, { Td, dep: Td === null ? null : (h.T - Td) });
+    const Tw = icingWetbulb(h.T, h.RH);
+    by[h.dt] = Object.assign({}, h, { Td, dep: Td === null ? null : (h.T - Td), Tw });
   });
 
   function rng(a, b) {
@@ -231,6 +245,27 @@ function icingJudge(hours, target) {
     ],
   });
 
+  // ---- 증발냉각(주의) — 기온은 영상이지만 젖은 노면이 마르며 노면 온도를 떨어뜨리는 경우
+  const afterLastRainMorning = morning.filter(h => last === null || h.dt > last);
+  let wbMinHour = null;
+  afterLastRainMorning.forEach(h => {
+    if (h.Tw !== null && h.Tw !== undefined && (wbMinHour === null || h.Tw < wbMinHour.Tw)) wbMinHour = h;
+  });
+  const wbMin = wbMinHour ? wbMinHour.Tw : null;
+  const C3 = eveRain.length >= c.A_min_rain_hours && lastHourOk
+    && wbMin !== null && wbMin <= c.C3_wetbulb_freeze;
+  checks.push({
+    type: '증발냉각', met: !!C3,
+    items: [
+      ['전날 오후·저녁 비', eveRain.length >= c.A_min_rain_hours,
+        `${eveRain.length}시간 (기준 ${c.A_min_rain_hours}시간 이상)`],
+      ['비가 늦게 그침', lastHourOk,
+        `마지막 강수 ${last !== null ? icingFmtMdH(last) : '없음'} (기준 ${c.A_last_rain_hour}시 이후)`],
+      ['습구온도 영하', wbMin !== null && wbMin <= c.C3_wetbulb_freeze,
+        wbMin !== null ? `00~08시 최저 습구온도 ${icingPyFixed(wbMin, 1)}℃ (기준 ${icingPyFixed(c.C3_wetbulb_freeze, 0)}℃ 이하)` : '해당 시간 없음'],
+    ],
+  });
+
   // ---- 단계 결정
   let level = (A || DS) ? 3 : 0;
   const downs = [];
@@ -255,6 +290,8 @@ function icingJudge(hours, target) {
       downs.push(`결빙 시간대 평균풍속 ${icingPyFixed(freezeAvgWind, 1)}m/s → 노면 건조 빠름`);
       downgrade_types.push('strong_wind');
     }
+  } else if (C3) {
+    level = 2;
   } else {
     const near = tminNight !== null && tminNight <= c.watch_temp
       && eve.concat(day.slice(0, 10)).some(h => icingIsPrecip(h));
@@ -442,7 +479,7 @@ if (typeof module !== 'undefined' && module.exports) {
     ICING_CONFIG, ICING_LEVELS, ICING_PTY_NAME, ICING_SKY_NAME,
     icingKstNowMs, icingKstMs, icingKstDateParts, icingDefaultTarget,
     icingTargetToMs, icingTargetIso, icingFmtMdH, icingFmtHm, icingFmtDateTime,
-    icingDewpoint, icingSunrise, icingJudge,
+    icingDewpoint, icingWetbulb, icingSunrise, icingJudge,
     icingCollectHours, icingFetchObsHour,
     icingRunJudge,
   };

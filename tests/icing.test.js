@@ -26,6 +26,7 @@ function arrEq(a, b) {
 
 const NOT_RISK_DATES = ['2025-01-28', '2025-02-13', '2025-03-17', '2026-02-07'];
 const EARLY_RECOVERY_DATE = '2024-03-13';
+const EVAP_COOLING_DATES = ['2023-03-13', '2024-03-01', '2025-02-02', '2025-12-14', '2026-02-11'];
 
 const rows = [];
 let allPass = true;
@@ -63,6 +64,9 @@ for (const ds of Object.keys(fixtures)) {
   if (ds === EARLY_RECOVERY_DATE) {
     const ok = exp.level_name === '주의' && exp.downgrades.some(d => d.includes('조기 회복'));
     if (!ok) { allRulesPass = false; console.log(`!! 규칙 위반: ${ds} 는 "주의"(조기 회복 하향)여야 하는데 파이썬 결과가 다릅니다:`, exp); }
+  } else if (EVAP_COOLING_DATES.includes(ds)) {
+    const ok = exp.level_name === '주의' && exp.types.includes('증발냉각');
+    if (!ok) { allRulesPass = false; console.log(`!! 규칙 위반: ${ds} 는 "주의"(증발냉각)여야 하는데 파이썬 결과가 다릅니다:`, exp); }
   } else if (NOT_RISK_DATES.includes(ds)) {
     const ok = exp.level_name !== '위험';
     if (!ok) { allRulesPass = false; console.log(`!! 규칙 위반: ${ds} 는 "위험"이 아니어야 하는데 파이썬 결과가 "위험"입니다.`); }

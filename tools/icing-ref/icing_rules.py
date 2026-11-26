@@ -22,11 +22,15 @@ CONFIG = {
     "DS_night_min_temp": 0.0,      # 전날 18시~당일 10시 최저기온 (노면이 식어 있었는지)
     "DS_precip_temp": 2.0,         # 이 기온 이하에서 내린 강수만 셈
     "DS_min_precip_hours": 2,      # 위 강수가 있었던 시간 수 (1시간짜리 날림 제외)
-    "DS_max_dep": 3.5,             # 강수 중 기온-이슬점 차 최솟값 (건조하면 증발·승화)
+    "DS_max_dep": 4.5,             # 강수 중 기온-이슬점 차 최솟값 (건조하면 증발·승화)
     # 경보 하향 인자
     "early_sunrise": "07:00",      # 일출이 이보다 이르고
     "recover_temp_09": 3.0,        # 09시 기온이 이 값 이상이고 07~09시 맑으면 빠른 회복으로 봄
     "strong_wind_ms": 6.0,         # 결빙 시간대 평균풍속이 이 이상이면 노면 건조 빠름
+    # 주의 단계(증발냉각) — 기온은 영상이지만 건조해 습구온도가 영하인 경우
+    "C3_wetbulb_freeze": 0.0,      # 마지막 강수 이후 00~08시 중 습구온도가 이 값 이하인 시간이 있어야 함
+    "C3_rh_clamp_min": 5.0,        # Stull(2011) 습구온도 근사식 적용 RH 하한(%)
+    "C3_rh_clamp_max": 99.0,       # Stull(2011) 습구온도 근사식 적용 RH 상한(%)
     # 관심 단계(근접 조건)
     "watch_temp": 2.0,
     # 위치(김해공항)
@@ -49,6 +53,17 @@ def dewpoint(t, rh):
     a, b = 17.62, 243.12
     g = math.log(rh / 100.0) + a * t / (b + t)
     return b * g / (a - g)
+
+
+def wetbulb(t, rh):
+    """Stull(2011) 근사식으로 습구온도 계산 (RH는 5~99%로 제한)"""
+    if t is None or rh is None:
+        return None
+    rh_c = min(max(rh, CONFIG["C3_rh_clamp_min"]), CONFIG["C3_rh_clamp_max"])
+    return (t * math.atan(0.151977 * math.sqrt(rh_c + 8.313659))
+            + math.atan(t + rh_c) - math.atan(rh_c - 1.676331)
+            + 0.00391838 * (rh_c ** 1.5) * math.atan(0.023101 * rh_c)
+            - 4.686035)
 
 
 def sunrise(d, lat=CONFIG["lat"], lon=CONFIG["lon"]):
@@ -89,6 +104,7 @@ def judge(hours, target):
     for h in by.values():
         h["Td"] = dewpoint(h["T"], h.get("RH"))
         h["dep"] = (h["T"] - h["Td"]) if h["Td"] is not None else None
+        h["Tw"] = wetbulb(h["T"], h.get("RH"))
 
     def rng(a, b):
         return [by[t] for t in sorted(by) if a <= t < b]
@@ -145,6 +161,23 @@ def judge(hours, target):
              f"기온-이슬점 차 {pr_dep:.1f}℃ (기준 {c['DS_max_dep']}℃ 이하)" if pr_dep is not None else "해당 강수 없음"),
         ]})
 
+    # ---- 증발냉각(주의) — 기온은 영상이지만 젖은 노면이 마르며 노면 온도를 떨어뜨리는 경우
+    after_last_rain_morning = [h for h in morning if (last is None or h["dt"] > last)]
+    wb_candidates = [h["Tw"] for h in after_last_rain_morning if h["Tw"] is not None]
+    wb_min = min(wb_candidates) if wb_candidates else None
+    C3 = (len(eve_rain) >= c["A_min_rain_hours"] and last_hour_ok
+          and wb_min is not None and wb_min <= c["C3_wetbulb_freeze"])
+    checks.append({
+        "type": "증발냉각", "met": bool(C3),
+        "items": [
+            ("전날 오후·저녁 비", len(eve_rain) >= c["A_min_rain_hours"],
+             f"{len(eve_rain)}시간 (기준 {c['A_min_rain_hours']}시간 이상)"),
+            ("비가 늦게 그침", last_hour_ok,
+             f"마지막 강수 {last.strftime('%m/%d %H시') if last else '없음'} (기준 {c['A_last_rain_hour']}시 이후)"),
+            ("습구온도 영하", wb_min is not None and wb_min <= c["C3_wetbulb_freeze"],
+             f"00~08시 최저 습구온도 {wb_min:.1f}℃ (기준 {c['C3_wetbulb_freeze']:.0f}℃ 이하)" if wb_min is not None else "해당 시간 없음"),
+        ]})
+
     # ---- 단계 결정
     level = 3 if (A or DS) else 0
     downs = []
@@ -163,10 +196,13 @@ def judge(hours, target):
             level = min(level, 2)
             downs.append(f"결빙 시간대 평균풍속 {sum(winds)/len(winds):.1f}m/s → 노면 건조 빠름")
     else:
-        near = (tmin_night is not None and tmin_night <= c["watch_temp"]
-                and any(is_precip(h) for h in eve + day[:10]))
-        if near:
-            level = 1
+        if C3:
+            level = 2
+        else:
+            near = (tmin_night is not None and tmin_night <= c["watch_temp"]
+                    and any(is_precip(h) for h in eve + day[:10]))
+            if near:
+                level = 1
 
     first_freeze = freeze[0]["dt"] if (A and freeze) else (cold_pr[0]["dt"] if DS else None)
     name, action = LEVELS[level]
