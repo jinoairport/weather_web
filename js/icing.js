@@ -556,6 +556,7 @@ async function icingRunJudge(target) {
   const hours = await icingCollectHours(target, data.hourlyRows || []);
   const res = icingJudge(hours, target);
   res.base = data.baseTimeDisplay || '-';
+  res.is_real = !!data.isReal; // 목업/캐시된 옛 예보(stale)는 baseTimeDisplay에 "목업"/"⚠" 접두로도 드러남 — 알림 쪽에서 신선도 판단에 씀
   res.grid = `${CONFIG.NX},${CONFIG.NY}`;
   res.now = icingFmtDateTime(nowMs);
   res.default_target = icingTargetIso(icingDefaultTarget(nowMs));
