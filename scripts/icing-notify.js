@@ -33,6 +33,14 @@ const LOG_DIR = path.join(ROOT, 'data', 'icing-log');
 const LINK = 'https://jinoairport.github.io/weather_web/icing.html';
 const DAYS_KO = ['일', '월', '화', '수', '목', '금', '토'];
 
+/* GITHUB_OUTPUT에 이 실행이 실제로 판정을 했는지(ran) 적어둔다 — 워크플로가 이 값으로
+   "기록 커밋" 단계를 돌릴지 말지 정한다(판정을 건너뛴 실행은 커밋할 것 자체가 없으므로). */
+function setStepOutput(name, value) {
+  const file = process.env.GITHUB_OUTPUT;
+  if (!file) return;
+  try { fs.appendFileSync(file, `${name}=${value}\n`); } catch (e) { /* 로컬 실행 등 — 무시 */ }
+}
+
 function fail(msg) {
   console.error('실패:', msg);
   process.exit(1);
@@ -726,7 +734,9 @@ async function main() {
   console.log(`실행 방식: ${isManual ? '수동 테스트' : '자동(정기)'}`);
 
   const icing = loadIcingModule(kmaKey);
-  const nowMs = icing.icingKstNowMs();
+  // ICING_NOW_MS: 운영 중엔 쓰지 않음. 감시 시간대 게이트·중복 실행 등을 실제 네트워크 호출 없이
+  // 검증할 때만 현재 시각을 강제로 지정하는 테스트용 통로(설정 안 하면 평소처럼 실제 시각을 쓴다).
+  const nowMs = process.env.ICING_NOW_MS ? Number(process.env.ICING_NOW_MS) : icing.icingKstNowMs();
   const nowDisplay = icing.icingFmtDateTime(nowMs);
   const kstHour = icing.icingKstDateParts(nowMs).h;
   const nowHHMM = nowDisplay.slice(11, 16);
@@ -735,7 +745,8 @@ async function main() {
   //    수동 실행(Run workflow)만 시간과 관계없이 동작한다.
   const inMonitorWindow = kstHour >= 16 || kstHour < 5;
   if (!isManual && !inMonitorWindow) {
-    console.log(`감시 시간대(16:00~05:00) 밖(KST ${kstHour}시) 자동 실행 — 바로 종료합니다.`);
+    console.log(`건너뜀: 감시 시간대(16:00~05:00) 밖(KST ${kstHour}시) 자동 실행 — 판정하지 않고 종료합니다.`);
+    setStepOutput('ran', 'false');
     return;
   }
 
@@ -747,9 +758,12 @@ async function main() {
 
   // 1) 같은 시(hour)에 이미 실행된 기록이 있으면 아무것도 하지 않고 종료(수동 실행은 항상 진행)
   if (!isManual && alreadyRanThisHour(seasonLog, nowDisplay)) {
-    console.log(`중복 실행 — ${nowDisplay.slice(0, 13)}시에 이미 실행된 기록이 있어 종료합니다.`);
+    console.log(`건너뜀: 중복 실행 — ${nowDisplay.slice(0, 13)}시에 이미 실행된 기록이 있어 종료합니다.`);
+    setStepOutput('ran', 'false');
     return;
   }
+
+  setStepOutput('ran', 'true');
 
   // 2) 실행 공백 감지 — 감시 시간대(16:30~04:30) 안에서 직전 실행과 2시간 넘게 비면 이상 알림
   const gapReason = detectExecutionGap(seasonLog, nowMs, kstHour);
