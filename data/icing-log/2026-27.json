@@ -288,5 +288,27 @@
   "freeze_avg_wind": null,
   "alert_kind": null,
   "sent": false
+ },
+ {
+  "executed_at": "2026-11-28 02:28",
+  "is_manual": false,
+  "target": "2026-11-28",
+  "level": 0,
+  "level_name": "정상",
+  "types": [],
+  "downgrade_types": [],
+  "caution_reason": null,
+  "forecast_base": "11/27 17:00 발표",
+  "morning_min_temp": 7,
+  "night_min_temp": 7,
+  "last_rain_time": null,
+  "last_rain_ms": null,
+  "freeze_start_time": null,
+  "freeze_start_ms": null,
+  "precip_start_time": null,
+  "precip_start_ms": null,
+  "freeze_avg_wind": null,
+  "alert_kind": null,
+  "sent": false
  }
 ]
