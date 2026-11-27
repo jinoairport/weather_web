@@ -21,14 +21,44 @@ TARGETS = [
     "2025-01-06", "2025-02-07", "2025-02-12", "2025-03-18",
     "2025-01-28", "2025-02-13", "2025-03-17", "2026-02-07",
     "2023-03-13", "2024-03-01", "2025-02-02", "2025-12-14", "2026-02-11",
+    "2025-12-16", "2020-12-28",  # 서리, 노면영하(기온 1℃ 완화) 대표일
 ]
+
+# 물고임 잔류·저녁 결빙은 과거 실측에서 대표일을 찾지 못했다(물고임은 RKPK METAR가
+# 강수량(p01i)을 아예 보고하지 않아 검증 불가 — 아래 참고). 규칙 자체의 파이썬·JS
+# 일치만 확인하기 위해 손으로 만든 가상 시간별 자료를 쓴다(대상일을 2030년대로 표시해
+# 실제 관측일과 혼동되지 않게 한다).
+def hr(dt, T, RH, pty=0, pcp=0.0, wsd=2.0, sky=3):
+    return {"dt": dt, "T": T, "RH": RH, "pty": pty, "pcp": pcp, "wsd": wsd, "sky": sky, "src": "SYN"}
+
+
+def synthetic_fixtures():
+    out = {}
+
+    # 물고임 잔류: 대상일 36시간 전(그제 오후) 많은 비 12mm, 다른 조건은 전부 배제
+    d = "2030-01-15"
+    hours = (
+        [hr(datetime(2030, 1, 13, h), 5, 90, pty=1, pcp=2.0, wsd=3, sky=4) for h in (13, 14, 15, 16, 17, 18)]
+        + [hr(datetime(2030, 1, 15, h), -1, 70, pty=0, pcp=0, wsd=3, sky=3) for h in range(0, 9)]
+    )
+    out[d] = (d, hours)
+
+    # 저녁 결빙: 대상일 전날 18~20시 비, 20~24시 영하(00~08시 자료는 비워 다른 규칙과 분리)
+    d = "2030-02-20"
+    hours = (
+        [hr(datetime(2030, 2, 19, h), 3, 85, pty=1, pcp=1.0, wsd=2, sky=4) for h in (18, 19)]
+        + [hr(datetime(2030, 2, 19, h), -1, 90, pty=0, pcp=0, wsd=1.5, sky=4) for h in (20, 21, 22, 23)]
+    )
+    out[d] = (d, hours)
+
+    return out
 
 
 def window(hours, target):
-    """대상일 전날 12시 ~ 대상일 24시(배타)의 시간별 자료만 추려냄 —
-       judge()가 실제로 참조하는 범위(d0-12h ~ d0+24h)와 정확히 같다."""
+    """대상일 전전전날 0시 ~ 대상일 24시(배타)의 시간별 자료만 추려냄 —
+       judge()가 실제로 참조하는 가장 넓은 범위(재결빙 d0-48h ~ 결빙형/강수형 d0+24h)와 정확히 같다."""
     d0 = datetime.combine(target, datetime.min.time())
-    start, end = d0 - timedelta(hours=12), d0 + timedelta(hours=24)
+    start, end = d0 - timedelta(hours=48), d0 + timedelta(hours=24)
     return [h for h in hours if start <= h["dt"] < end]
 
 
@@ -66,6 +96,21 @@ def main():
         }
         print(f"  {ds}: 시간자료 {len(win)}건 -> {res_win['level_name']} "
               f"유형={res_win['types']} 하향={res_win['downgrades']}")
+
+    for ds, (_, syn_hours) in synthetic_fixtures().items():
+        target = date.fromisoformat(ds)
+        res = judge(syn_hours, target)
+        fixtures[ds] = {
+            "target": ds,
+            "hours": [dict(h, dt=h["dt"].isoformat()) for h in syn_hours],
+            "expected": {
+                "level": res["level"], "level_name": res["level_name"],
+                "types": res["types"], "downgrades": res["downgrades"],
+                "missing_hours": res["missing_hours"], "sunrise": res["sunrise"],
+            },
+        }
+        print(f"  {ds}(가상): 시간자료 {len(syn_hours)}건 -> {res['level_name']} "
+              f"유형={res['types']} 하향={res['downgrades']}")
 
     out_dir = os.path.join(os.path.dirname(HERE), "tests")
     os.makedirs(out_dir, exist_ok=True)

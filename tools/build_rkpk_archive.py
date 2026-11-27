@@ -3,7 +3,7 @@
 RKPK METAR CSV(IEM ASOS 내보내기)를 합쳐(타임스탬프 중복 제거) tools/data/rkpk_metar.json.gz로 저장한다.
 이 PC는 재부팅 때 C:\\data\\icing\\*.csv가 사라지므로, 검증용 관측자료를 저장소에 둔다.
 
-backtest.py의 load()가 실제로 쓰는 컬럼만 남긴다: valid, tmpf, relh, wxcodes, skyc1~3, sknt, metar.
+backtest.py의 load()가 실제로 쓰는 컬럼만 남긴다: valid, tmpf, relh, wxcodes, skyc1~3, sknt, p01i, metar.
 같은 valid(분 단위 타임스탬프)가 여러 파일에 중복되면 나중 파일이 덮어쓴다(backtest.load()와 동일한 규칙).
 
 사용: python tools/build_rkpk_archive.py [CSV경로 ...]
@@ -17,7 +17,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_PATH = os.path.join(HERE, "data", "rkpk_metar.json.gz")
-KEEP_FIELDS = ["valid", "tmpf", "relh", "wxcodes", "skyc1", "skyc2", "skyc3", "sknt", "metar"]
+KEEP_FIELDS = ["valid", "tmpf", "relh", "wxcodes", "skyc1", "skyc2", "skyc3", "sknt", "p01i", "metar"]
 
 DEFAULT_CSV_PATHS = [
     r"C:\data\icing\RKPK.csv",

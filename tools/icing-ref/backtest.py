@@ -36,6 +36,17 @@ def num(x):
         return None
 
 
+def precip_mm(x):
+    """IEM ASOS p01i(1시간 강수량, 인치) -> mm. 'M'(결측)·'T'(미량)는 0으로 처리"""
+    if x is None:
+        return 0.0
+    s = str(x).strip()
+    if s in ("M", "", "T"):
+        return 0.0
+    v = num(s)
+    return round(v * 25.4, 2) if v is not None else 0.0
+
+
 def read_rows(p):
     """CSV(IEM ASOS 내보내기) 또는 tools/build_rkpk_archive.py가 만든 .json.gz/.json 모두 지원"""
     if p.endswith(".json.gz"):
@@ -79,7 +90,7 @@ def load(paths):
                 rep = min(pr, key=lambda r: num(r["tmpf"]))
                 tf, rh = num(rep["tmpf"]), num(rep["relh"])
         out.append({"dt": hr, "T": round((tf - 32) * 5 / 9, 1), "RH": rh, "pty": pty,
-                    "pcp": 0.0, "wsd": None if kt is None else kt * 0.5144,
+                    "pcp": precip_mm(main.get("p01i")), "wsd": None if kt is None else kt * 0.5144,
                     "sky": sky, "src": "METAR"})
     return out
 

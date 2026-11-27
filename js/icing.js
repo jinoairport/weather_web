@@ -27,6 +27,23 @@ const ICING_CONFIG = {
   C3_wetbulb_freeze: 0.0,
   C3_rh_clamp_min: 5.0,
   C3_rh_clamp_max: 99.0,
+  FROST_sky: 1,
+  FROST_wind_max: 2.0,
+  FROST_temp_max: 2.0,
+  FROST_dew_max: 0.0,
+  FROST_dep_max: 1.5,
+  FROST_min_hours: 2,
+  RF_window_hours: 48,
+  RF_min_snow_hours: 2,
+  RF_max_dep: 4.5,
+  RF_freeze_temp: 0.0,
+  PD_window_hours: 36,
+  PD_min_mm: 10.0,
+  PD_freeze_temp: 0.0,
+  WS_freeze_temp: 1.0,
+  EVE_min_rain_hours: 2,
+  EVE_freeze_temp: 0.0,
+  EVE_max_dep: 2.5,
   watch_temp: 2.0,
   lat: 35.1795, lon: 128.9382,
 };
@@ -266,6 +283,83 @@ function icingJudge(hours, target) {
     ],
   });
 
+  // ---- 서리(주의) — 맑고 바람 약한 새벽, 기온이 이슬점 가까이 떨어져 생기는 서리
+  const frostHours = morning.filter(h => h.sky === c.FROST_sky && h.wsd !== null && h.wsd !== undefined && h.wsd < c.FROST_wind_max
+    && h.T <= c.FROST_temp_max && h.Td !== null && h.Td !== undefined && h.Td <= c.FROST_dew_max
+    && h.dep !== null && h.dep !== undefined && h.dep <= c.FROST_dep_max);
+  const FROST = frostHours.length >= c.FROST_min_hours;
+  checks.push({
+    type: '서리', met: !!FROST,
+    items: [
+      ['맑고 바람 약한 새벽', frostHours.length >= c.FROST_min_hours,
+        `조건 충족 ${frostHours.length}시간 (기준 ${c.FROST_min_hours}시간 이상)`],
+    ],
+  });
+
+  // ---- 재결빙(주의) — 최근 내린 눈·진눈깨비가 녹지 않고 남았다가 다시 어는 경우
+  const window48 = rng(d0 - c.RF_window_hours * H, d0);
+  const snowHours = window48.filter(h => [2, 3].includes(h.pty || 0));
+  const snowDeps = snowHours.map(h => h.dep).filter(v => v !== null && v !== undefined);
+  const snowDepMin = snowDeps.length ? Math.min(...snowDeps) : null;
+  const rfMorningMin = morning.length ? Math.min(...morning.map(h => h.T)) : null;
+  const REFREEZE = snowHours.length >= c.RF_min_snow_hours && snowDepMin !== null
+    && snowDepMin <= c.RF_max_dep && rfMorningMin !== null && rfMorningMin <= c.RF_freeze_temp;
+  checks.push({
+    type: '재결빙', met: !!REFREEZE,
+    items: [
+      ['최근 눈·진눈깨비', snowHours.length >= c.RF_min_snow_hours,
+        `최근 ${c.RF_window_hours}시간 중 ${snowHours.length}시간 (기준 ${c.RF_min_snow_hours}시간 이상)`],
+      ['녹을 만큼 습함', snowDepMin !== null && snowDepMin <= c.RF_max_dep,
+        snowDepMin !== null ? `기온-이슬점 차 ${icingPyFixed(snowDepMin, 1)}℃ (기준 ${c.RF_max_dep}℃ 이하)` : '해당 강수 없음'],
+      ['새벽 영하', rfMorningMin !== null && rfMorningMin <= c.RF_freeze_temp,
+        rfMorningMin !== null ? `00~08시 최저 ${icingPyFixed(rfMorningMin, 0)}℃ (기준 ${icingPyFixed(c.RF_freeze_temp, 0)}℃ 이하)` : '자료 없음'],
+    ],
+  });
+
+  // ---- 물고임 잔류(주의) — 최근 많은 비가 배수 안 되는 구간에 남아 있다가 어는 경우
+  const window36 = rng(d0 - c.PD_window_hours * H, d0);
+  const totalPcp = window36.reduce((s, h) => s + (h.pcp || 0), 0);
+  const pdMorningMin = morning.length ? Math.min(...morning.map(h => h.T)) : null;
+  const PUDDLE = totalPcp >= c.PD_min_mm && pdMorningMin !== null && pdMorningMin <= c.PD_freeze_temp;
+  checks.push({
+    type: '물고임', met: !!PUDDLE,
+    items: [
+      ['최근 많은 비', totalPcp >= c.PD_min_mm,
+        `최근 ${c.PD_window_hours}시간 누적 ${icingPyFixed(totalPcp, 1)}mm (기준 ${icingPyFixed(c.PD_min_mm, 0)}mm 이상)`],
+      ['새벽 영하', pdMorningMin !== null && pdMorningMin <= c.PD_freeze_temp,
+        pdMorningMin !== null ? `00~08시 최저 ${icingPyFixed(pdMorningMin, 0)}℃ (기준 ${icingPyFixed(c.PD_freeze_temp, 0)}℃ 이하)` : '자료 없음'],
+    ],
+  });
+
+  // ---- 기온 영상·노면 영하(주의) — 결빙형(A) 기온 기준만 완화했을 때 충족하는 경우(A 미충족 시만)
+  const wsFreeze = morning.filter(h => h.T <= c.WS_freeze_temp && (last === null || h.dt > last));
+  const wsDeps = wsFreeze.map(h => h.dep).filter(v => v !== null && v !== undefined);
+  const wsDepMin = wsDeps.length ? Math.min(...wsDeps) : null;
+  const WARM_SURFACE = !A && eveRain.length >= c.A_min_rain_hours && lastHourOk && wsFreeze.length > 0
+    && wsDepMin !== null && wsDepMin <= c.A_max_dep;
+  checks.push({
+    type: '노면영하', met: !!WARM_SURFACE,
+    items: [
+      ['기온 1℃ 이하(완화 기준)', wsFreeze.length > 0,
+        morning.length ? `00~08시 최저 ${icingPyFixed(Math.min(...morning.map(h => h.T)), 0)}℃ (완화 기준 ${icingPyFixed(c.WS_freeze_temp, 0)}℃ 이하)` : '자료 없음'],
+    ],
+  });
+
+  // ---- 저녁 결빙(주의) — 00~08시 판정보다 이른, 당일 20~24시 결빙
+  const eveRain1220 = eve.filter(h => icingIsPrecip(h) && h.dt >= d0 - 12 * H && h.dt < d0 - 4 * H);
+  const eveFreezeHours = eve.filter(h => h.dt >= d0 - 4 * H && h.dt < d0 && h.T <= c.EVE_freeze_temp
+    && h.dep !== null && h.dep !== undefined && h.dep <= c.EVE_max_dep);
+  const EVENING = eveRain1220.length >= c.EVE_min_rain_hours && eveFreezeHours.length > 0;
+  checks.push({
+    type: '저녁결빙', met: !!EVENING,
+    items: [
+      ['저녁 전 비', eveRain1220.length >= c.EVE_min_rain_hours,
+        `${eveRain1220.length}시간 (기준 ${c.EVE_min_rain_hours}시간 이상)`],
+      ['저녁 영하', eveFreezeHours.length > 0,
+        eve.length ? `20~24시 결빙 조건 충족 ${eveFreezeHours.length}시간` : '자료 없음'],
+    ],
+  });
+
   // ---- 단계 결정
   let level = (A || DS) ? 3 : 0;
   const downs = [];
@@ -290,7 +384,7 @@ function icingJudge(hours, target) {
       downs.push(`결빙 시간대 평균풍속 ${icingPyFixed(freezeAvgWind, 1)}m/s → 노면 건조 빠름`);
       downgrade_types.push('strong_wind');
     }
-  } else if (C3) {
+  } else if (C3 || FROST || REFREEZE || PUDDLE || WARM_SURFACE || EVENING) {
     level = 2;
   } else {
     const near = tminNight !== null && tminNight <= c.watch_temp
@@ -307,6 +401,10 @@ function icingJudge(hours, target) {
   night.forEach(h => { if (nightMinHour === null || h.T < nightMinHour.T) nightMinHour = h; });
   const precipTemps = coldPr.map(h => h.T);
   const precipRhs = coldPr.map(h => h.RH).filter(v => v !== null && v !== undefined);
+  let frostHour = null;
+  frostHours.forEach(h => { if (frostHour === null || h.T < frostHour.T) frostHour = h; });
+  let wsFreezeHour = null;
+  wsFreeze.forEach(h => { if (wsFreezeHour === null || h.T < wsFreezeHour.T) wsFreezeHour = h; });
 
   const [name, action] = ICING_LEVELS[level];
   return {
@@ -357,6 +455,16 @@ function icingJudge(hours, target) {
       ? icingPyRoundHalfEven(wbMinHour.RH, 0) : null,
     c3_wind: (wbMinHour && wbMinHour.wsd !== null && wbMinHour.wsd !== undefined)
       ? icingPyRoundHalfEven(wbMinHour.wsd, 1) : null,
+    frost_temp: frostHour ? icingPyRoundHalfEven(frostHour.T, 0) : null,
+    frost_rh: (frostHour && frostHour.RH !== null && frostHour.RH !== undefined)
+      ? icingPyRoundHalfEven(frostHour.RH, 0) : null,
+    frost_wind: (frostHour && frostHour.wsd !== null && frostHour.wsd !== undefined)
+      ? icingPyRoundHalfEven(frostHour.wsd, 1) : null,
+    snow_start_time: snowHours.length ? icingFmtMdH(snowHours[0].dt) : null,
+    snow_end_time: snowHours.length ? icingFmtMdH(snowHours[snowHours.length - 1].dt) : null,
+    puddle_total_mm: icingPyRoundHalfEven(totalPcp, 1),
+    ws_min_temp: wsFreezeHour ? icingPyRoundHalfEven(wsFreezeHour.T, 0) : null,
+    evening_freeze_start_time: eveFreezeHours.length ? icingFmtMdH(eveFreezeHours[0].dt) : null,
   };
 }
 
@@ -401,7 +509,8 @@ async function icingFetchObsHour(ms) {
 async function icingCollectHours(target, forecastHourlyRows) {
   const H = 3600000;
   const d0 = icingTargetToMs(target);
-  const winStart = d0 - 12 * H;
+  // 재결빙(48시간)·물고임 잔류(36시간) 판정에 필요한 과거 구간까지 확보
+  const winStart = d0 - 48 * H;
   const winEnd = d0 + 24 * H;
   const nowMs = icingKstNowMs();
 

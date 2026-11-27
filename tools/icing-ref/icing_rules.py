@@ -31,6 +31,28 @@ CONFIG = {
     "C3_wetbulb_freeze": 0.0,      # 마지막 강수 이후 00~08시 중 습구온도가 이 값 이하인 시간이 있어야 함
     "C3_rh_clamp_min": 5.0,        # Stull(2011) 습구온도 근사식 적용 RH 하한(%)
     "C3_rh_clamp_max": 99.0,       # Stull(2011) 습구온도 근사식 적용 RH 상한(%)
+    # 서리(주의) — 맑고 바람 약한 새벽, 기온이 이슬점 가까이 떨어져 생기는 서리
+    "FROST_sky": 1,                 # 맑음(코드 1)
+    "FROST_wind_max": 2.0,          # 풍속 미만(m/s)
+    "FROST_temp_max": 2.0,          # 기온 이하(℃)
+    "FROST_dew_max": 0.0,           # 이슬점 이하(℃)
+    "FROST_dep_max": 1.5,           # 기온-이슬점 차 이하(℃)
+    "FROST_min_hours": 2,
+    # 재결빙(주의) — 최근 내린 눈·진눈깨비가 녹지 않고 남았다가 다시 어는 경우
+    "RF_window_hours": 48,
+    "RF_min_snow_hours": 2,
+    "RF_max_dep": 4.5,
+    "RF_freeze_temp": 0.0,
+    # 물고임 잔류(주의) — 최근 많은 비가 배수 안 되는 구간에 남아 있다가 어는 경우
+    "PD_window_hours": 36,
+    "PD_min_mm": 10.0,
+    "PD_freeze_temp": 0.0,
+    # 기온 영상·노면 영하(주의) — 결빙형(A) 기온 기준만 완화했을 때 충족하는 경우
+    "WS_freeze_temp": 1.0,
+    # 저녁 결빙(주의) — 매시간 감시에서 00~08시 판정보다 이른, 당일 20~24시 결빙
+    "EVE_min_rain_hours": 2,
+    "EVE_freeze_temp": 0.0,
+    "EVE_max_dep": 2.5,
     # 관심 단계(근접 조건)
     "watch_temp": 2.0,
     # 위치(김해공항)
@@ -178,6 +200,81 @@ def judge(hours, target):
              f"00~08시 최저 습구온도 {wb_min:.1f}℃ (기준 {c['C3_wetbulb_freeze']:.0f}℃ 이하)" if wb_min is not None else "해당 시간 없음"),
         ]})
 
+    # ---- 서리(주의) — 맑고 바람 약한 새벽, 기온이 이슬점 가까이 떨어져 생기는 서리
+    frost_hours = [h for h in morning
+                   if h.get("sky") == c["FROST_sky"] and h.get("wsd") is not None and h["wsd"] < c["FROST_wind_max"]
+                   and h["T"] <= c["FROST_temp_max"] and h["Td"] is not None and h["Td"] <= c["FROST_dew_max"]
+                   and h["dep"] is not None and h["dep"] <= c["FROST_dep_max"]]
+    FROST = len(frost_hours) >= c["FROST_min_hours"]
+    checks.append({
+        "type": "서리", "met": bool(FROST),
+        "items": [
+            ("맑고 바람 약한 새벽", len(frost_hours) >= c["FROST_min_hours"],
+             f"조건 충족 {len(frost_hours)}시간 (기준 {c['FROST_min_hours']}시간 이상)"),
+        ]})
+
+    # ---- 재결빙(주의) — 최근 내린 눈·진눈깨비가 녹지 않고 남았다가 다시 어는 경우
+    window48 = rng(d0 - c["RF_window_hours"] * H, d0)
+    snow_hours = [h for h in window48 if (h.get("pty") or 0) in (2, 3)]
+    snow_deps = [h["dep"] for h in snow_hours if h["dep"] is not None]
+    snow_dep_min = min(snow_deps) if snow_deps else None
+    rf_morning_min = min((h["T"] for h in morning), default=None)
+    REFREEZE = (len(snow_hours) >= c["RF_min_snow_hours"] and snow_dep_min is not None
+                and snow_dep_min <= c["RF_max_dep"] and rf_morning_min is not None
+                and rf_morning_min <= c["RF_freeze_temp"])
+    checks.append({
+        "type": "재결빙", "met": bool(REFREEZE),
+        "items": [
+            ("최근 눈·진눈깨비", len(snow_hours) >= c["RF_min_snow_hours"],
+             f"최근 {c['RF_window_hours']}시간 중 {len(snow_hours)}시간 (기준 {c['RF_min_snow_hours']}시간 이상)"),
+            ("녹을 만큼 습함", snow_dep_min is not None and snow_dep_min <= c["RF_max_dep"],
+             f"기온-이슬점 차 {snow_dep_min:.1f}℃ (기준 {c['RF_max_dep']}℃ 이하)" if snow_dep_min is not None else "해당 강수 없음"),
+            ("새벽 영하", rf_morning_min is not None and rf_morning_min <= c["RF_freeze_temp"],
+             f"00~08시 최저 {rf_morning_min:.0f}℃ (기준 {c['RF_freeze_temp']:.0f}℃ 이하)" if rf_morning_min is not None else "자료 없음"),
+        ]})
+
+    # ---- 물고임 잔류(주의) — 최근 많은 비가 배수 안 되는 구간에 남아 있다가 어는 경우
+    window36 = rng(d0 - c["PD_window_hours"] * H, d0)
+    total_pcp = sum(h.get("pcp") or 0 for h in window36)
+    pd_morning_min = min((h["T"] for h in morning), default=None)
+    PUDDLE = (total_pcp >= c["PD_min_mm"] and pd_morning_min is not None
+              and pd_morning_min <= c["PD_freeze_temp"])
+    checks.append({
+        "type": "물고임", "met": bool(PUDDLE),
+        "items": [
+            ("최근 많은 비", total_pcp >= c["PD_min_mm"],
+             f"최근 {c['PD_window_hours']}시간 누적 {total_pcp:.1f}mm (기준 {c['PD_min_mm']:.0f}mm 이상)"),
+            ("새벽 영하", pd_morning_min is not None and pd_morning_min <= c["PD_freeze_temp"],
+             f"00~08시 최저 {pd_morning_min:.0f}℃ (기준 {c['PD_freeze_temp']:.0f}℃ 이하)" if pd_morning_min is not None else "자료 없음"),
+        ]})
+
+    # ---- 기온 영상·노면 영하(주의) — 결빙형(A) 기온 기준만 완화했을 때 충족하는 경우(A 미충족 시만)
+    ws_freeze = [h for h in morning if h["T"] <= c["WS_freeze_temp"] and (last is None or h["dt"] > last)]
+    ws_deps = [h["dep"] for h in ws_freeze if h["dep"] is not None]
+    ws_dep_min = min(ws_deps) if ws_deps else None
+    WARM_SURFACE = (not A and len(eve_rain) >= c["A_min_rain_hours"] and last_hour_ok and bool(ws_freeze)
+                    and ws_dep_min is not None and ws_dep_min <= c["A_max_dep"])
+    checks.append({
+        "type": "노면영하", "met": bool(WARM_SURFACE),
+        "items": [
+            ("기온 1℃ 이하(완화 기준)", bool(ws_freeze),
+             f"00~08시 최저 {min((h['T'] for h in morning), default=float('nan')):.0f}℃ (완화 기준 {c['WS_freeze_temp']:.0f}℃ 이하)" if morning else "자료 없음"),
+        ]})
+
+    # ---- 저녁 결빙(주의) — 00~08시 판정보다 이른, 당일 20~24시 결빙
+    eve_rain_1220 = [h for h in eve if is_precip(h) and d0 - 12 * H <= h["dt"] < d0 - 4 * H]
+    eve_freeze_hours = [h for h in eve if d0 - 4 * H <= h["dt"] < d0 and h["T"] <= c["EVE_freeze_temp"]
+                         and h["dep"] is not None and h["dep"] <= c["EVE_max_dep"]]
+    EVENING = len(eve_rain_1220) >= c["EVE_min_rain_hours"] and bool(eve_freeze_hours)
+    checks.append({
+        "type": "저녁결빙", "met": bool(EVENING),
+        "items": [
+            ("저녁 전 비", len(eve_rain_1220) >= c["EVE_min_rain_hours"],
+             f"{len(eve_rain_1220)}시간 (기준 {c['EVE_min_rain_hours']}시간 이상)"),
+            ("저녁 영하", bool(eve_freeze_hours),
+             f"20~24시 결빙 조건 충족 {len(eve_freeze_hours)}시간" if eve else "자료 없음"),
+        ]})
+
     # ---- 단계 결정
     level = 3 if (A or DS) else 0
     downs = []
@@ -196,7 +293,7 @@ def judge(hours, target):
             level = min(level, 2)
             downs.append(f"결빙 시간대 평균풍속 {sum(winds)/len(winds):.1f}m/s → 노면 건조 빠름")
     else:
-        if C3:
+        if C3 or FROST or REFREEZE or PUDDLE or WARM_SURFACE or EVENING:
             level = 2
         else:
             near = (tmin_night is not None and tmin_night <= c["watch_temp"]
