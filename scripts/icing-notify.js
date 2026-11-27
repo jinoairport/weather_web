@@ -9,13 +9,17 @@
    존재를 모르므로 동작이 전혀 바뀌지 않는다.
 
    이 저장소는 공개 저장소라 Actions 로그도 누구나 볼 수 있다 — 로그에는
-   실행 슬롯, 판정 단계, 발송 성공/실패 정도만 남기고, 토큰·API 응답 본문·
+   판정 단계, 발송 성공/실패 정도만 남기고, 토큰·API 응답 본문·
    좌표·메시지 본문 등 상세값은 어떤 레벨로도 출력하지 않는다.
+
+   더 이상 16:30/21:00 고정 슬롯이 없다 — cron-job.org가 매시간(16:30~04:30, 13회)
+   workflow_dispatch를 부르고(GitHub schedule은 보조), 대상일별 알림 이력은
+   data/icing-log/{동절기}.json에서, 매시간 실행 간 기상청 실황 재조회를 줄이는
+   캐시는 data/obs-cache/rkpk.json에서 이어 쓴다.
 
    사용(모두 GitHub Actions 워크플로에서 환경변수로 전달):
      KMA_SERVICE_KEY, KAKAO_REST_KEY, KAKAO_CLIENT_SECRET, KAKAO_REFRESH_TOKEN,
-     GH_PAT, GITHUB_REPOSITORY(자동), ICING_SLOT(eve|night, 워크플로가 계산),
-     ICING_IS_MANUAL(true|false), ICING_STATE_PATH(.icing-state/state.json)
+     GH_PAT, GITHUB_REPOSITORY(자동), ICING_IS_MANUAL(true|false)
    =================================================== */
 'use strict';
 
@@ -25,7 +29,6 @@ const vm = require('vm');
 const { execFileSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
-const STATE_PATH = process.env.ICING_STATE_PATH || path.join(ROOT, '.icing-state', 'state.json');
 const LOG_DIR = path.join(ROOT, 'data', 'icing-log');
 const LINK = 'https://jinoairport.github.io/weather_web/icing.html';
 const DAYS_KO = ['일', '월', '화', '수', '목', '금', '토'];
@@ -55,7 +58,40 @@ function loadIcingModule(apiKey) {
   vm.runInThisContext(apiSrc, { filename: 'js/api.js' });
 
   // eslint-disable-next-line global-require, import/no-dynamic-require
-  return require(path.join(ROOT, 'js', 'icing.js'));
+  const mod = require(path.join(ROOT, 'js', 'icing.js'));
+  mod.__store = store; // 매시간 실행 간 실황 캐시를 저장소 파일로 이어주기 위한 접근점(store 자체 — 매 프로세스 새로 생성됨)
+  return mod;
+}
+
+/* ===================== 1-1. 실황 캐시 영속화(data/obs-cache) =====================
+   icingCollectHours는 과거 시간별 실황을 localStorage(icing_obs_cache)에 캐시하지만,
+   GitHub Actions는 실행마다 새 프로세스라 그 캐시가 매번 비어 있다. 매시간 실행으로
+   바뀌면서 재결빙(48시간)·물고임 잔류(36시간) 판정에 필요한 과거 구간이 넓어졌으므로,
+   이 캐시를 파일로 저장소에 남겨 다음 실행이 이어 쓰게 한다 — 기상청 API 호출을
+   "이미 아는 과거 시각 재조회"가 아니라 "그 사이 새로 지난 시각"만큼만 하게 만든다. */
+const OBS_CACHE_PATH = path.join(ROOT, 'data', 'obs-cache', 'rkpk.json');
+const OBS_CACHE_KEEP_MS = 90 * 3600000; // 넉넉히 90시간치만 보관(재결빙 48h+버퍼)
+
+function loadObsCacheFile() {
+  try {
+    return JSON.parse(fs.readFileSync(OBS_CACHE_PATH, 'utf8'));
+  } catch (e) {
+    return {};
+  }
+}
+
+function pruneObsCache(cache, nowMs) {
+  const cutoff = nowMs - OBS_CACHE_KEEP_MS;
+  const out = {};
+  Object.keys(cache).forEach(k => {
+    if (Number(k) >= cutoff) out[k] = cache[k];
+  });
+  return out;
+}
+
+function saveObsCacheFile(cache) {
+  fs.mkdirSync(path.dirname(OBS_CACHE_PATH), { recursive: true });
+  fs.writeFileSync(OBS_CACHE_PATH, JSON.stringify(cache), 'utf8');
 }
 
 /* ===================== 2. 발송 전 필수 게이트: tests/icing.test.js =====================
@@ -73,12 +109,11 @@ function runIcingTests() {
 }
 
 /* ===================== 3. 대상일(항상 "내일 새벽") ===================== */
-function computeTomorrowTarget(icing) {
-  const nowMs = icing.icingKstNowMs();
-  const p = icing.icingKstDateParts(nowMs);
-  const todayMs = icing.icingKstMs(p.y, p.mo, p.d, 0, 0);
-  const tp = icing.icingKstDateParts(todayMs + 86400000);
-  return { y: tp.y, mo: tp.mo, d: tp.d };
+/* 대상일(판정 대상 새벽): 실행 시점 KST가 12시 이후면 "내일 새벽", 12시 이전이면 "오늘 새벽" —
+   더 이상 16:30/21:00 슬롯 개념을 쓰지 않고(매시간 상시 감시), 실행 시각의 낮/밤 여부로만 정한다.
+   사이트(icing.html)가 수동 조회 때 쓰는 icingDefaultTarget()과 완전히 같은 규칙이라 그대로 재사용한다. */
+function computeTarget(icing, nowMs) {
+  return icing.icingDefaultTarget(nowMs);
 }
 
 function fmtHeaderDate(targetIso) {
@@ -159,6 +194,16 @@ function hourRangeKo(startMdH, endMdH) {
   return `${sm[1]}~${em[1]}시`;
 }
 
+/* "MM/DD HH시" 두 개를 "11/24 20~23시"(같은 날) 또는 "11/24 23시~11/25 02시"(날짜 걸침)로 — 재결빙(48시간 창) 전용 */
+function snowRangeKo(startMdH, endMdH) {
+  if (!startMdH) return '';
+  if (!endMdH || startMdH === endMdH) return startMdH;
+  const sd = startMdH.split(' ')[0];
+  const ed = endMdH.split(' ')[0];
+  if (sd === ed) return `${sd} ${hourRangeKo(startMdH, endMdH)}`;
+  return `${startMdH}~${endMdH}`;
+}
+
 function tempRangeKo(min, max) {
   if (min == null && max == null) return '';
   if (min == null) return `${max}℃`;
@@ -177,15 +222,24 @@ function build1Message(res) {
       { text: `[김해공항 노면결빙 예보] ${header} 새벽 「위험」` },
       { text: `■예상: ${expect}`, trimmable: true },
       { text: '■조치: 제설제 살포인원 05시 조기출근 → 결빙 취약구간(그늘·물고임·보도) 제설제 사전 살포, 06시 승객 보행 전 완료 후 결과 단톡방 공유' },
-      { text: '※21시 재판정 결과 추가 통보 예정' },
+      { text: '※이후 단계가 바뀌면 재판정 통보' },
     ]);
   }
-  // level === 2 (주의) — 사유와 관계없이 공통 문구
+  // level === 2 (주의) — 저녁 결빙은 00~08시 판정보다 이르므로 제목·예상을 따로 쓴다
+  if (res.types.includes('저녁결빙')) {
+    return composeWithLimit([
+      { text: `[김해공항 노면결빙 예보] ${header} 오늘 저녁 「주의」` },
+      { text: `■예상: ${hourOnlyKo(res.evening_freeze_start_time) || '저녁'}경부터 노면 결빙 가능`, trimmable: true },
+      { text: '■조치: 추가 인원 조기출근 없음. 야간 점검자가 취약구간(그늘·물고임·보도) 순찰 → 결빙 시 국부 살포·단톡방 보고, 범위가 넓으면 살포인원 호출' },
+      { text: '※이후 단계가 바뀌면 재판정 통보' },
+    ]);
+  }
+  // 그 외(증발냉각/서리/재결빙/물고임/노면영하) — 사유와 관계없이 공통 문구
   return composeWithLimit([
     { text: `[김해공항 노면결빙 예보] ${header} 새벽 「주의」` },
     { text: `■예상: 05~07시 취약구간 얇은 결빙 가능(일출 ${res.sunrise}, 06시 승객 보행 전 확인 필요)`, trimmable: true },
     { text: '■조치: 추가 인원 조기출근 없음. 야간 점검자가 05시경 취약구간(그늘·물고임·보도) 순찰 → 결빙 시 국부 살포·단톡방 보고, 범위가 넓으면 살포인원 호출' },
-    { text: '※21시 재판정 결과 추가 통보 예정' },
+    { text: '※이후 단계가 바뀌면 재판정 통보' },
   ]);
 }
 
@@ -255,6 +309,46 @@ function build2Message(res) {
       { text: `·습도: ${res.c3_rh}%로 다소 건조` },
       { text: '·젖은 노면의 물이 마르면서 노면 온도를 떨어뜨림' },
       { text: '→ 기온이 영상이어도 그늘·물고임 구간은 얇게 얼 수 있음' },
+    ]);
+  }
+  if (res.types.includes('재결빙')) {
+    return composeWithLimit([
+      { text: headerLine },
+      { text: `·눈: ${snowRangeKo(res.snow_start_time, res.snow_end_time)} 눈·진눈깨비`, trimmable: true },
+      { text: `·기온: 새벽 최저 ${res.morning_min_temp}℃` },
+      { text: '→ 녹은 눈이 다시 얼 수 있음, 눈 치운 자리·배수 불량 구간 주의' },
+    ]);
+  }
+  if (res.types.includes('물고임')) {
+    return composeWithLimit([
+      { text: headerLine },
+      { text: `·비: 최근 36시간 ${res.puddle_total_mm}mm`, trimmable: true },
+      { text: `·기온: 새벽 최저 ${res.morning_min_temp}℃` },
+      { text: '→ 물고임 구간에 남은 물이 얼 수 있음' },
+    ]);
+  }
+  if (res.types.includes('노면영하')) {
+    return composeWithLimit([
+      { text: headerLine },
+      { text: `·비: 어제 ${hourRangeKo(res.rain_start_time, res.last_rain_time)}`, trimmable: true },
+      { text: `·기온: 새벽 ${res.ws_min_temp}℃(영상이나 0℃ 근접)` },
+      { text: '→ 그늘·교량 구간은 노면이 먼저 얼 수 있음' },
+    ]);
+  }
+  if (res.types.includes('서리')) {
+    return composeWithLimit([
+      { text: headerLine },
+      { text: `·날씨: 맑음·바람 ${res.frost_wind}m/s`, trimmable: true },
+      { text: `·기온: 새벽 ${res.frost_temp}℃, 습도 ${res.frost_rh}%` },
+      { text: '→ 공기 중 수분이 노면에 얼어붙는 서리 가능, 보도·데크 미끄럼 주의' },
+    ]);
+  }
+  if (res.types.includes('저녁결빙')) {
+    return composeWithLimit([
+      { text: headerLine },
+      { text: `·비: 어제 ${hourRangeKo(res.rain_start_time, res.last_rain_time)} → 노면이 젖은 채 저녁을 맞음`, trimmable: true },
+      { text: `·기온: 저녁 ${hourOnlyKo(res.evening_freeze_start_time) || ''}부터 영하` },
+      { text: '→ 이른 결빙 가능, 저녁 운항·보행 시간대 주의' },
     ]);
   }
   // 그 외(알 수 없는 사유) — 안전한 일반 문구로 폴백
@@ -354,58 +448,42 @@ function describeChange(prior, res) {
   return '예보 갱신 — 이전 판정과 조건 동일';
 }
 
-function build2100Message(res, prior) {
+/* 위험으로 상향되는 시각이 22시 이후(심야)면 05시 조기출근 대기 대신 즉시 대응으로 바꾼다 */
+function buildReassessAction(res, priorLevel, kstHour) {
+  if (res.level === 3) {
+    if (priorLevel === 3) return '05시 조기출근 유지';
+    const late = kstHour >= 22 || kstHour < 5;
+    return late
+      ? '야간 점검자 즉시 취약구간 확인·국부 살포, 범위가 넓으면 토목부 판단으로 제설제 살포인원 비상호출'
+      : '제설제 살포인원 05시 조기출근으로 변경';
+  }
+  if (priorLevel === 3) return '05시 조기출근 취소, 야간 점검자 05시경 순찰로 변경';
+  if (res.level <= 1) return '결빙 가능성 낮아져 조기출근·순찰 해제';
+  return '야간 점검자 05시경 순찰 유지';
+}
+
+/* 상향(레벨이 오를 때)·정리(21:30, 하향·유지·해제) 공용 1통 — 제목을 "{HH:MM} 재판정"으로 실행 시각을 그대로 적는다.
+   단계가 그대로(유지)면 화살표 없이 "「단계」 유지"로, 사유도 고정 문구로 쓴다(실제로 바뀐 게 없으므로). */
+function buildReassessMessage(res, prior, nowHHMM, kstHour) {
   const header = fmtHeaderDate(res.target);
   const priorLevel = prior ? prior.level : 0;
   const priorName = prior ? prior.level_name : '정상';
   const dir = res.level > priorLevel ? '상향' : (res.level < priorLevel ? '하향' : '유지');
-
-  let action;
-  if (res.level === 3) {
-    action = priorLevel === 3 ? '05시 조기출근 유지' : '제설제 살포인원 05시 조기출근으로 변경';
-  } else if (priorLevel === 3) {
-    action = '05시 조기출근 취소, 야간 점검자 05시경 순찰로 변경';
-  } else if (res.level <= 1) {
-    action = '결빙 가능성 낮아져 조기출근·순찰 해제';
-  } else {
-    action = '조기출근 없음, 출근 즉시 순찰 유지';
-  }
-
-  const cause = describeChange(prior || {}, res);
-  const title = `${header} 새벽 ${levelBracket(priorName)}→${levelBracket(res.level_name)} ${dir}`;
+  const action = buildReassessAction(res, priorLevel, kstHour);
+  const title = dir === '유지'
+    ? `${header} 새벽 ${levelBracket(res.level_name)} 유지`
+    : `${header} 새벽 ${levelBracket(priorName)}→${levelBracket(res.level_name)} ${dir}`;
+  const cause = dir === '유지' ? '최신 예보에서도 결빙 조건 그대로' : describeChange(prior || {}, res);
 
   return composeWithLimit([
-    { text: '[김해공항 노면결빙 예보] 21시 재판정' },
+    { text: `[김해공항 노면결빙 예보] ${nowHHMM} 재판정` },
     { text: title },
     { text: `■사유: ${cause}`, trimmable: true },
     { text: `■조치: ${action}` },
   ]);
 }
 
-/* ===================== 7. 21시 비교용 상태 저장/로드 =====================
-   describeChange가 비교하는 값들을 전부 남겨둬야 21시에 "무엇이 바뀌었는지"를 쓸 수 있다 */
-function loadPriorState() {
-  try {
-    return JSON.parse(fs.readFileSync(STATE_PATH, 'utf8'));
-  } catch (e) {
-    return null;
-  }
-}
-
-function saveState(res) {
-  fs.mkdirSync(path.dirname(STATE_PATH), { recursive: true });
-  fs.writeFileSync(STATE_PATH, JSON.stringify({
-    target: res.target, level: res.level, level_name: res.level_name,
-    types: res.types, downgrades: res.downgrades, downgrade_types: res.downgrade_types,
-    last_rain_time: res.last_rain_time, last_rain_ms: res.last_rain_ms,
-    freeze_start_time: res.freeze_start_time, freeze_start_ms: res.freeze_start_ms,
-    precip_start_time: res.precip_start_time, precip_start_ms: res.precip_start_ms,
-    morning_min_temp: res.morning_min_temp, night_min_temp: res.night_min_temp,
-    freeze_avg_wind: res.freeze_avg_wind,
-  }, null, 1), 'utf8');
-}
-
-/* ===================== 7-1. 판정 결과 자동 기록(data/icing-log/{동절기}.json) =====================
+/* ===================== 7. 대상일별 알림 이력(data/icing-log) — 21:30 하향 비교의 "이전 상태"도 여기서 가져온다 =====================
    master에만 쌓는다(이 파일 작성 뒤 워크플로가 master에 커밋·push — main에는 올리지 않음).
    토큰·키는 절대 넣지 않는다. */
 function winterSeasonLabel(targetIso) {
@@ -414,31 +492,68 @@ function winterSeasonLabel(targetIso) {
   return `${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`;
 }
 
+function loadSeasonLog(targetIso) {
+  const file = path.join(LOG_DIR, `${winterSeasonLabel(targetIso)}.json`);
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) {
+    return [];
+  }
+}
+
+/* 같은 시(hour)에 이미 실행된 기록이 있으면 중복 실행 — nowDisplay: "YYYY-MM-DD HH:MM" */
+function alreadyRanThisHour(log, nowDisplay) {
+  const hourKey = nowDisplay.slice(0, 13); // "YYYY-MM-DD HH"
+  return log.some(e => (e.executed_at || '').slice(0, 13) === hourKey);
+}
+
+/* 오늘(대상일) 실제로 알림을 보낸 기록 중 최고 단계 — 수동 테스트 발송은 집계에서 뺀다(통계 오염 방지) */
+function maxAlertedLevel(log, targetIso) {
+  let max = 0;
+  log.forEach(e => {
+    if (e.target === targetIso && e.sent && !e.is_manual && e.level > max) max = e.level;
+  });
+  return max;
+}
+
+/* 가장 최근에 실제로 보낸 알림 — 재판정 문구의 "이전 상태" 비교 기준(수동 테스트 제외) */
+function lastAlertEntry(log, targetIso) {
+  let best = null;
+  log.forEach(e => {
+    if (e.target === targetIso && e.sent && !e.is_manual) best = e;
+  });
+  return best;
+}
+
 function cautionReasonTag(res) {
   if (res.level !== 2) return null;
   if (res.downgrade_types.includes('early_recovery')) return 'early_recovery';
   if (res.downgrade_types.includes('strong_wind')) return 'strong_wind';
-  if (res.types.includes('증발냉각')) return 'evap_cooling';
-  return 'unknown';
+  const order = ['증발냉각', '재결빙', '물고임', '노면영하', '서리', '저녁결빙'];
+  const hit = order.find(t => res.types.includes(t));
+  return hit ? { 증발냉각: 'evap_cooling', 재결빙: 'refreeze', 물고임: 'puddle', 노면영하: 'warm_surface', 서리: 'frost', 저녁결빙: 'evening' }[hit] : 'unknown';
 }
 
-function appendIcingLog(res, slot, isManual, sent, nowDisplay) {
+function appendIcingLog(res, isManual, alertKind, sent, nowDisplay) {
   const file = path.join(LOG_DIR, `${winterSeasonLabel(res.target)}.json`);
   fs.mkdirSync(LOG_DIR, { recursive: true });
   let log = [];
   try { log = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { log = []; }
   log.push({
     executed_at: nowDisplay,
-    slot, is_manual: isManual,
+    is_manual: isManual,
     target: res.target,
     level: res.level, level_name: res.level_name,
+    types: res.types, downgrade_types: res.downgrade_types,
     caution_reason: cautionReasonTag(res),
     forecast_base: res.base,
     morning_min_temp: res.morning_min_temp,
     night_min_temp: res.night_min_temp,
-    last_rain_time: res.last_rain_time,
-    freeze_start_time: res.freeze_start_time,
-    precip_start_time: res.precip_start_time,
+    last_rain_time: res.last_rain_time, last_rain_ms: res.last_rain_ms,
+    freeze_start_time: res.freeze_start_time, freeze_start_ms: res.freeze_start_ms,
+    precip_start_time: res.precip_start_time, precip_start_ms: res.precip_start_ms,
+    freeze_avg_wind: res.freeze_avg_wind,
+    alert_kind: alertKind, // 'initial' | 'escalate' | 'cleanup' | null(발송 없음)
     sent,
   });
   fs.writeFileSync(file, JSON.stringify(log, null, 1), 'utf8');
@@ -507,88 +622,200 @@ async function sendKakaoMemo(accessToken, text, buttonTitle) {
   });
   const json = await resp.json().catch(() => ({}));
   if (!(resp.ok && json.result_code === 0)) {
-    fail(`카카오 메시지 전송 실패 (${json.error_code || resp.status})`);
+    throw new Error(`카카오 메시지 전송 실패 (${json.error_code || resp.status})`);
   }
   console.log('카카오 메시지 전송: 성공');
 }
 
-/* ===================== 메인 ===================== */
+/* ===================== 9-1. 이상 감지(지연·오류) 알림 — 과장님에게만, 하루 1회 =====================
+   대상일이 아니라 "오늘(실행일) KST 날짜" 기준으로 하루 1회만 보낸다. 판정 흐름이 실패해도
+   이 알림 자체의 실패가 전체 실행을 추가로 막지는 않는다(최선 노력). */
+function anomalyLogFile(todayIso) {
+  return path.join(LOG_DIR, `${winterSeasonLabel(todayIso)}.json`);
+}
+
+function anomalyAlreadySentToday(todayIso) {
+  try {
+    const log = JSON.parse(fs.readFileSync(anomalyLogFile(todayIso), 'utf8'));
+    return log.some(e => e.anomaly && (e.executed_at || '').slice(0, 10) === todayIso);
+  } catch (e) {
+    return false;
+  }
+}
+
+function appendAnomalyMark(todayIso, reason, nowDisplay) {
+  const file = anomalyLogFile(todayIso);
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+  let log = [];
+  try { log = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { log = []; }
+  log.push({ executed_at: nowDisplay, anomaly: true, reason, sent: true });
+  fs.writeFileSync(file, JSON.stringify(log, null, 1), 'utf8');
+}
+
+/* 감시 시간대(16:30~04:30) 안에서 직전 실행과 2시간 넘게 공백이 있었는지 — 감시 시간대 밖에서
+   시작하는 하루 첫 실행(예: 04:30 다음 16:30)의 정상적인 ~12시간 공백은 대상에서 제외한다. */
+function detectExecutionGap(log, nowMs, kstHour) {
+  const inWindow = kstHour >= 16 || kstHour < 5;
+  if (!inWindow || !log.length) return null;
+  const last = log[log.length - 1];
+  const m = (last.executed_at || '').match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/);
+  if (!m) return null;
+  const lastHour = Number(m[4]);
+  if (lastHour === 4 && kstHour >= 16) return null; // 04:30(감시 종료)→16:30(감시 시작) 정상적인 하루 공백
+  const lastInWindow = lastHour >= 16 || lastHour < 5;
+  if (!lastInWindow) return null; // 그 밖의 감시 시간대 바깥 마지막 실행 → 정상 공백으로 간주
+  // 로그의 executed_at은 KST 벽시계 문자열 — icingKstNowMs()·icingKstMs()와 같은 규칙(UTC getter로 KST 숫자를 읽는 epoch)으로 맞춰 뺀다
+  const lastMs = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]));
+  const gapMs = nowMs - lastMs;
+  if (gapMs > 2 * 3600000) return `마지막 실행 ${last.executed_at} 이후 ${(gapMs / 3600000).toFixed(1)}시간 공백`;
+  return null;
+}
+
+async function sendAnomalyAlert(kakaoRestKey, kakaoClientSecret, kakaoRefreshToken, reason, nowDisplay) {
+  const todayIso = nowDisplay.slice(0, 10);
+  if (anomalyAlreadySentToday(todayIso)) {
+    console.log(`이상 알림: 오늘 이미 보냄 — 생략(${reason})`);
+    return;
+  }
+  const text = `[결빙알림] 자동 판정 지연·오류 발생(${reason}), 결빙예측 페이지에서 직접 확인 필요`;
+  try {
+    const accessToken = await refreshKakaoToken(kakaoRestKey, kakaoClientSecret, kakaoRefreshToken);
+    await sendKakaoMemo(accessToken, text, '결빙예측 페이지');
+    appendAnomalyMark(todayIso, reason, nowDisplay);
+    console.log(`이상 알림 발송: 성공(${reason})`);
+  } catch (e) {
+    console.log(`이상 알림 발송 실패(최선 노력이었음): ${e && e.message ? e.message : String(e)}`);
+  }
+}
+
+function kstNowDisplay() {
+  const d = new Date(Date.now() + 9 * 3600000);
+  const p2 = v => String(v).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`;
+}
+
+/* 워크플로의 "판정 기록 push" 단계처럼 icing-notify.js 바깥(셸)에서, 판정 과정 없이
+   이상 알림만 보낼 때 쓰는 진입점 — KMA 키·판정 로직 로딩 없이 독립적으로 동작한다. */
+async function sendAnomalyAlertCli(reason) {
+  const kakaoRestKey = process.env.KAKAO_REST_KEY;
+  const kakaoClientSecret = process.env.KAKAO_CLIENT_SECRET;
+  const kakaoRefreshToken = process.env.KAKAO_REFRESH_TOKEN;
+  if (!kakaoRestKey || !kakaoClientSecret || !kakaoRefreshToken) {
+    console.log('이상 알림(CLI): 카카오 시크릿 없음 — 생략');
+    return;
+  }
+  await sendAnomalyAlert(kakaoRestKey, kakaoClientSecret, kakaoRefreshToken, reason, kstNowDisplay());
+}
+
+/* ===================== 메인 =====================
+   더 이상 16:30/21:00 슬롯이 없다 — cron-job.org가 매시간(16:30~04:30, 13회)
+   workflow_dispatch를 호출하고(GitHub schedule은 보조), 매 실행이 스스로
+   "오늘 대상일에 대해 지금 무엇을 보낼지"(초기/상향/정리(21:30)/반복-무발송)를 정한다. */
 async function main() {
   const kmaKey = process.env.KMA_SERVICE_KEY;
   const kakaoRestKey = process.env.KAKAO_REST_KEY;
   const kakaoClientSecret = process.env.KAKAO_CLIENT_SECRET;
   const kakaoRefreshToken = process.env.KAKAO_REFRESH_TOKEN;
-  const slot = process.env.ICING_SLOT; // 'eve' | 'night'
   const isManual = process.env.ICING_IS_MANUAL === 'true';
 
   if (!kmaKey) fail('KMA_SERVICE_KEY 시크릿이 없습니다.');
   if (!kakaoRestKey || !kakaoClientSecret || !kakaoRefreshToken) {
     fail('KAKAO_REST_KEY / KAKAO_CLIENT_SECRET / KAKAO_REFRESH_TOKEN 시크릿을 확인하세요.');
   }
-  if (slot !== 'eve' && slot !== 'night') fail(`ICING_SLOT 값이 올바르지 않습니다: ${slot}`);
 
-  console.log(`실행 슬롯: ${slot}${isManual ? ' (수동 실행)' : ''}`);
+  console.log(`실행 방식: ${isManual ? '수동 테스트' : '자동(정기)'}`);
+
+  const icing = loadIcingModule(kmaKey);
+  const nowMs = icing.icingKstNowMs();
+  const nowDisplay = icing.icingFmtDateTime(nowMs);
+  const kstHour = icing.icingKstDateParts(nowMs).h;
+  const nowHHMM = nowDisplay.slice(11, 16);
+
+  // 0) 감시 시간대(KST 16:00~05:00) 밖의 자동 실행(schedule·cron-job.org)은 판정·발송·기록 없이 바로 종료.
+  //    수동 실행(Run workflow)만 시간과 관계없이 동작한다.
+  const inMonitorWindow = kstHour >= 16 || kstHour < 5;
+  if (!isManual && !inMonitorWindow) {
+    console.log(`감시 시간대(16:00~05:00) 밖(KST ${kstHour}시) 자동 실행 — 바로 종료합니다.`);
+    return;
+  }
 
   runIcingTests();
 
-  const icing = loadIcingModule(kmaKey);
-  const target = computeTomorrowTarget(icing);
+  const target = computeTarget(icing, nowMs);
+  const targetIso = icing.icingTargetIso(target);
+  const seasonLog = loadSeasonLog(targetIso);
+
+  // 1) 같은 시(hour)에 이미 실행된 기록이 있으면 아무것도 하지 않고 종료(수동 실행은 항상 진행)
+  if (!isManual && alreadyRanThisHour(seasonLog, nowDisplay)) {
+    console.log(`중복 실행 — ${nowDisplay.slice(0, 13)}시에 이미 실행된 기록이 있어 종료합니다.`);
+    return;
+  }
+
+  // 2) 실행 공백 감지 — 감시 시간대(16:30~04:30) 안에서 직전 실행과 2시간 넘게 비면 이상 알림
+  const gapReason = detectExecutionGap(seasonLog, nowMs, kstHour);
+  if (gapReason) {
+    await sendAnomalyAlert(kakaoRestKey, kakaoClientSecret, kakaoRefreshToken, gapReason, nowDisplay);
+  }
+
+  // 3) 실황 캐시 파일 → 인메모리 localStorage 시드(매시간 실행 간 기상청 재조회를 "새로 지난 시간"만으로 줄임)
+  icing.__store.icing_obs_cache = JSON.stringify(loadObsCacheFile());
 
   let res;
   try {
     res = await icing.icingRunJudge(target);
   } catch (e) {
-    // 기상청 자료 조회 실패 — 지정된 실패 안내 문구만 보내고, 실행도 실패 처리한다
     console.log('판정 단계: (기상청 자료 조회 실패)');
-    const accessToken = await refreshKakaoToken(kakaoRestKey, kakaoClientSecret, kakaoRefreshToken);
-    await sendKakaoMemo(accessToken, '[김해공항 노면결빙 예보] 기상청 자료 조회 실패로 자동 판정 불가. 결빙예측 페이지에서 직접 확인 바랍니다.');
+    await sendAnomalyAlert(kakaoRestKey, kakaoClientSecret, kakaoRefreshToken, `기상청 자료 조회 실패: ${e.message}`, nowDisplay);
+    try {
+      saveObsCacheFile(pruneObsCache(JSON.parse(icing.__store.icing_obs_cache || '{}'), nowMs));
+    } catch (e2) { /* 캐시 저장 실패는 치명적이지 않음 */ }
     fail('기상청 자료 조회 실패');
     return;
   }
+  try {
+    saveObsCacheFile(pruneObsCache(JSON.parse(icing.__store.icing_obs_cache || '{}'), nowMs));
+  } catch (e) { console.log('실황 캐시 저장 실패(치명적이지 않음):', e.message); }
 
   console.log(`판정 단계: ${res.level_name}`);
 
-  let shouldSend = false;
-  let messages = null; // [[text, buttonTitle], ...] — 순서대로 연달아 발송
+  const maxAlerted = maxAlertedLevel(seasonLog, targetIso);
+  const prior = lastAlertEntry(seasonLog, targetIso);
 
+  let kind = null;
+  if (res.level >= 2 && maxAlerted === 0) kind = 'initial';
+  else if (res.level > maxAlerted) kind = 'escalate';
+  else if (kstHour === 21 && maxAlerted >= 2 && res.level <= maxAlerted) kind = 'cleanup';
+
+  let messages = null; // [[text, buttonTitle], ...] — 순서대로 연달아 발송
   if (isManual) {
-    shouldSend = true;
     messages = res.level >= 2
       ? [[build1Message(res), '결빙예측 페이지'], [build2Message(res), '시간별 그래프 보기']]
       : [[buildCalmMessage(res), '결빙예측 페이지']];
-  } else if (slot === 'eve') {
-    shouldSend = res.level >= 2;
-    if (shouldSend) {
-      messages = [[build1Message(res), '결빙예측 페이지'], [build2Message(res), '시간별 그래프 보기']];
-    }
-  } else {
-    // night — 21시 재판정은 1통만
-    const prior = loadPriorState();
-    const priorRisk = prior ? prior.level >= 2 : false;
-    const nowRisk = res.level >= 2;
-    if (priorRisk || nowRisk) {
-      shouldSend = true;
-      messages = [[build2100Message(res, prior), '결빙예측 페이지']];
-    }
+  } else if (kind === 'initial') {
+    messages = [[build1Message(res), '결빙예측 페이지'], [build2Message(res), '시간별 그래프 보기']];
+  } else if (kind === 'escalate' || kind === 'cleanup') {
+    messages = [[buildReassessMessage(res, prior, nowHHMM, kstHour), '결빙예측 페이지']];
   }
 
-  // 16:30 슬롯은 발송 여부와 무관하게 상태를 남겨 21시가 비교할 수 있게 한다
-  if (slot === 'eve') saveState(res);
-
-  const nowDisplay = icing.icingFmtDateTime(icing.icingKstNowMs());
-
-  if (!shouldSend) {
-    console.log('발송: 조건 미충족 — 보내지 않음');
-    appendIcingLog(res, slot, isManual, false, nowDisplay);
+  if (!messages) {
+    console.log(`발송: 조건 미충족(단계 ${res.level_name}, 이미 알린 최고 단계 ${maxAlerted}) — 보내지 않음`);
+    appendIcingLog(res, isManual, kind, false, nowDisplay);
     return;
   }
 
-  const accessToken = await refreshKakaoToken(kakaoRestKey, kakaoClientSecret, kakaoRefreshToken);
-  for (const [text, buttonTitle] of messages) {
-    // eslint-disable-next-line no-await-in-loop
-    await sendKakaoMemo(accessToken, text, buttonTitle);
+  try {
+    const accessToken = await refreshKakaoToken(kakaoRestKey, kakaoClientSecret, kakaoRefreshToken);
+    for (const [text, buttonTitle] of messages) {
+      // eslint-disable-next-line no-await-in-loop
+      await sendKakaoMemo(accessToken, text, buttonTitle);
+    }
+  } catch (e) {
+    appendIcingLog(res, isManual, kind, false, nowDisplay);
+    await sendAnomalyAlert(kakaoRestKey, kakaoClientSecret, kakaoRefreshToken, `카카오 발송 실패: ${e.message}`, nowDisplay);
+    fail(`카카오 메시지 전송 실패: ${e.message}`);
+    return;
   }
-  appendIcingLog(res, slot, isManual, true, nowDisplay);
+  appendIcingLog(res, isManual, isManual ? null : kind, true, nowDisplay);
 }
 
 if (require.main === module) {
@@ -596,8 +823,10 @@ if (require.main === module) {
 }
 
 module.exports = {
-  composeWithLimit, pickPrimaryType, hourRangeKo, tempRangeKo, formatBaseKo,
-  build1Message, build2Message, buildCalmMessage, build2100Message, describeChange,
+  composeWithLimit, pickPrimaryType, hourRangeKo, tempRangeKo, formatBaseKo, snowRangeKo,
+  build1Message, build2Message, buildCalmMessage, buildReassessMessage, buildReassessAction, describeChange,
   fmtHeaderDate, hourOnlyKo, precipPhrase, loadIcingModule,
-  computeTomorrowTarget, winterSeasonLabel, cautionReasonTag, appendIcingLog,
+  computeTarget, winterSeasonLabel, cautionReasonTag, appendIcingLog,
+  loadSeasonLog, alreadyRanThisHour, maxAlertedLevel, lastAlertEntry, detectExecutionGap,
+  sendAnomalyAlertCli,
 };
