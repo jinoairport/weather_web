@@ -101,8 +101,14 @@ const LV_COLOR = ["var(--lv0)","var(--lv1)","var(--lv2)","var(--lv3)"];
 const DESC = {
   "결빙형":"전날 늦게까지 온 비가 마르기 전에 새벽 영하로 떨어지는 경우",
   "강수형":"밤새 식은 노면 위에 영하 근처에서 비·눈이 내리는 경우",
-  "증발냉각":"기온은 영상이지만 젖은 노면이 마르면서 노면 온도가 영하로 떨어지는 경우"
+  "증발냉각":"기온은 영상이지만 젖은 노면이 마르면서 노면 온도가 영하로 떨어지는 경우",
+  "서리":"맑고 바람 약한 새벽, 기온이 이슬점 가까이 떨어지며 노면에 서리가 맺히는 경우",
+  "재결빙":"최근 내린 눈이 녹지 않은 채 남아 있다가 다시 어는 경우",
+  "물고임":"최근 많은 비가 배수되지 않고 고여 있다가 어는 경우",
+  "노면영하":"기온은 영상에 가깝지만 그늘·교량처럼 빨리 식는 구간은 노면이 먼저 영하로 떨어지는 경우",
+  "저녁결빙":"00~08시 판정보다 이른 저녁(20~24시)에 이미 노면이 어는 경우"
 };
+const TYPE_LABEL = { "노면영하":"그늘·교량 결빙 가능", "재결빙":"눈 녹은 물 재결빙", "저녁결빙":"저녁 결빙" };
 let target = null;
 
 function iso(d){return d.toISOString().slice(0,10)}
@@ -143,11 +149,11 @@ function render(j){
   const facts=[];
   if(j.first_risk_time) facts.push(`위험 시작 예상 <b>${j.first_risk_time}</b>`);
   facts.push(`일출 <b>${j.sunrise}</b>`);
-  if(j.types.length) facts.push(`유형 <b>${j.types.join(", ")}</b>`);
+  if(j.types.length) facts.push(`유형 <b>${j.types.map(t=>TYPE_LABEL[t]||t).join(", ")}</b>`);
   if(j.missing_hours>0) facts.push(`자료 빠진 시간 ${j.missing_hours}시간`);
   const checks=j.checks.map(ck=>`
     <div class="check ${ck.met?"met":""}">
-      <h3>${ck.type} ${ck.met?"· 조건 충족":"· 미충족"}</h3>
+      <h3>${TYPE_LABEL[ck.type]||ck.type} ${ck.met?"· 조건 충족":"· 미충족"}</h3>
       <div class="desc">${DESC[ck.type]}</div>
       <ul>${ck.items.map(([n,ok,v])=>`<li><span class="mark ${ok?"y":"n"}">${ok?"✓":"–"}</span>
         <span>${n}<small>${v}</small></span></li>`).join("")}</ul>
@@ -196,27 +202,34 @@ function seasonLabel(dateIso) {
   return `${sy}-${String((sy + 1) % 100).padStart(2, "0")}`;
 }
 
-const CAUTION_REASON_KO = { early_recovery: "조기 회복", strong_wind: "강풍", evap_cooling: "증발냉각", unknown: "-" };
+const CAUTION_REASON_KO = { early_recovery: "조기 회복", strong_wind: "강풍", evap_cooling: "증발냉각", refreeze: "눈 녹은 물 재결빙", puddle: "물고임", warm_surface: "그늘·교량 결빙 가능", frost: "서리", evening: "저녁 결빙", unknown: "-" };
 
 function renderLog(log, season) {
   const byDate = {};
+  const anomalies = [];
   log.forEach(r => {
-    const d = byDate[r.target] || (byDate[r.target] = {});
-    if (r.slot === "eve") d.eve = r; else d.night = r;
+    if (r.anomaly) { anomalies.push(r); return; }
+    const d = byDate[r.target] || (byDate[r.target] = { entries: [] });
+    d.entries.push(r);
   });
   const dates = Object.keys(byDate).sort();
   const rows = dates.map(d => {
-    const e = byDate[d].eve, n = byDate[d].night;
-    const rep = n || e;
-    const reason = rep && rep.caution_reason ? (CAUTION_REASON_KO[rep.caution_reason] || "-") : "-";
-    const sent = (e && e.sent) || (n && n.sent) ? "발송" : "미발송";
-    return `<tr><td>${d}</td><td>${e ? e.level_name : "-"}</td><td>${n ? n.level_name : "-"}</td><td>${reason}</td><td>${sent}</td></tr>`;
+    const entries = byDate[d].entries;
+    const sentEntries = entries.filter(e => e.sent && !e.is_manual);
+    const first = sentEntries[0];
+    const last = sentEntries[sentEntries.length - 1] || entries[entries.length - 1];
+    const reason = last && last.caution_reason ? (CAUTION_REASON_KO[last.caution_reason] || "-") : "-";
+    const firstText = first ? `${first.executed_at.slice(11)} ${first.level_name}` : "-";
+    const lastText = last ? last.level_name : "-";
+    return `<tr><td>${d}</td><td>${firstText}</td><td>${lastText}</td><td>${reason}</td><td>${sentEntries.length}회</td></tr>`;
   }).join("");
+  const anomalyRows = anomalies.map(a => `<tr><td>${a.executed_at}</td><td>${a.reason}</td></tr>`).join("");
   document.getElementById("main").innerHTML = `
     <section>
       <h2>판정 기록 — ${season} 동절기</h2>
-      <table><thead><tr><th>날짜</th><th>16:30 단계</th><th>21:00 단계</th><th>사유</th><th>발송</th></tr></thead>
+      <table><thead><tr><th>대상일(새벽)</th><th>최초 알림</th><th>최종 단계</th><th>사유</th><th>발송</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="5">기록이 없습니다.</td></tr>'}</tbody></table>
+      ${anomalies.length ? `<h3>지연·오류 알림</h3><table><thead><tr><th>시각</th><th>내용</th></tr></thead><tbody>${anomalyRows}</tbody></table>` : ""}
       <p><button onclick="load(target)">← 돌아가기</button></p>
     </section>`;
 }
