@@ -65,6 +65,13 @@ tr.pr td{color:var(--rain);font-weight:600}
 .note{color:var(--sub);font-size:12.5px;margin-top:22px;max-width:76ch}
 .error{background:#FBEAEA;border:1px solid #E6B8B5;color:#7A211B;border-radius:8px;padding:14px 16px}
 .loading{color:var(--sub);padding:40px 0}
+.stale-warn{background:#FBEAEA;border:2px solid var(--lv3);color:#7A211B;border-radius:10px;
+  padding:22px 26px;font-size:16px;line-height:1.7;grid-column:1/-1}
+.stale-warn b{font-size:19px}
+.stale-warn a{color:#7A211B;font-weight:700}
+.stale-dim{opacity:.45;filter:grayscale(.35)}
+.stale-badge{display:inline-block;background:var(--lv3);color:#fff;font-size:11px;font-weight:700;
+  padding:2px 9px;border-radius:999px;margin-left:8px;vertical-align:middle}
 @media (max-width:820px){.verdict{grid-template-columns:1fr}.checks{grid-template-columns:1fr}.level .name{font-size:52px}
   header,main{padding-left:16px;padding-right:16px}}
 @media (prefers-reduced-motion:no-preference){.level{animation:in .35s ease-out}@keyframes in{from{opacity:0;transform:translateY(6px)}}}
@@ -145,22 +152,34 @@ function pressButtons(){
 
 function render(j){
   document.getElementById("meta").textContent=`${j.base} 단기예보 · 격자 ${j.grid} · 판정 ${j.now}`;
-  const c=LV_COLOR[j.level];
-  const facts=[];
-  if(j.first_risk_time) facts.push(`위험 시작 예상 <b>${j.first_risk_time}</b>`);
-  facts.push(`일출 <b>${j.sunrise}</b>`);
-  if(j.types.length) facts.push(`유형 <b>${j.types.map(t=>TYPE_LABEL[t]||t).join(", ")}</b>`);
-  if(j.missing_hours>0) facts.push(`자료 빠진 시간 ${j.missing_hours}시간`);
-  const checks=j.checks.map(ck=>`
-    <div class="check ${ck.met?"met":""}">
-      <h3>${TYPE_LABEL[ck.type]||ck.type} ${ck.met?"· 조건 충족":"· 미충족"}</h3>
-      <div class="desc">${DESC[ck.type]}</div>
-      <ul>${ck.items.map(([n,ok,v])=>`<li><span class="mark ${ok?"y":"n"}">${ok?"✓":"–"}</span>
-        <span>${n}<small>${v}</small></span></li>`).join("")}</ul>
-    </div>`).join("");
-  const downs=j.downgrades.length?`<div class="downs"><b>단계 하향</b> — ${j.downgrades.join(" / ")}</div>`:"";
-  document.getElementById("main").innerHTML=`
-    <div class="verdict">
+  const stale = !j.is_real || String(j.base||"").startsWith("⚠");
+  const badge = stale ? '<span class="stale-badge">예시·이전 자료</span>' : "";
+  const dim = stale ? " stale-dim" : "";
+  let verdictHtml;
+  if (stale) {
+    verdictHtml = `<div class="verdict">
+      <div class="stale-warn">
+        <b>⚠ 기상청 예보를 받지 못했습니다.</b><br>
+        아래 내용은 예시·이전 자료라 판정에 쓸 수 없습니다.<br>
+        잠시 후 다시 판정하거나, <a href="https://www.weather.go.kr/w/index.do" target="_blank" rel="noopener">기상청 날씨누리</a>에서 직접 확인하세요.
+      </div>
+    </div>`;
+  } else {
+    const c=LV_COLOR[j.level];
+    const facts=[];
+    if(j.first_risk_time) facts.push(`위험 시작 예상 <b>${j.first_risk_time}</b>`);
+    facts.push(`일출 <b>${j.sunrise}</b>`);
+    if(j.types.length) facts.push(`유형 <b>${j.types.map(t=>TYPE_LABEL[t]||t).join(", ")}</b>`);
+    if(j.missing_hours>0) facts.push(`자료 빠진 시간 ${j.missing_hours}시간`);
+    const checks=j.checks.map(ck=>`
+      <div class="check ${ck.met?"met":""}">
+        <h3>${TYPE_LABEL[ck.type]||ck.type} ${ck.met?"· 조건 충족":"· 미충족"}</h3>
+        <div class="desc">${DESC[ck.type]}</div>
+        <ul>${ck.items.map(([n,ok,v])=>`<li><span class="mark ${ok?"y":"n"}">${ok?"✓":"–"}</span>
+          <span>${n}<small>${v}</small></span></li>`).join("")}</ul>
+      </div>`).join("");
+    const downs=j.downgrades.length?`<div class="downs"><b>단계 하향</b> — ${j.downgrades.join(" / ")}</div>`:"";
+    verdictHtml = `<div class="verdict">
       <div class="level" style="--c:${c}">
         <div class="when">${kdate(j.target)} 아침</div>
         <div class="name">${j.level_name}</div>
@@ -168,9 +187,12 @@ function render(j){
         <div class="facts">${facts.join("<br>")}</div>
       </div>
       <div class="checks">${checks}${downs}</div>
-    </div>
-    <section class="timeline">
-      <h2>전날 12시 ~ 당일 12시</h2>
+    </div>`;
+  }
+  document.getElementById("main").innerHTML=`
+    ${verdictHtml}
+    <section class="timeline${dim}">
+      <h2>전날 12시 ~ 당일 12시${badge}</h2>
       <div class="legend">
         <span><i style="background:var(--ink)"></i>기온</span>
         <span><i style="background:var(--dew)"></i>이슬점</span>
@@ -182,8 +204,8 @@ function render(j){
       </div>
       <div class="chartwrap">${chart(j)}</div>
     </section>
-    <details>
-      <summary>시간별 자료 보기</summary>
+    <details class="${dim.trim()}">
+      <summary>시간별 자료 보기${badge}</summary>
       <table><thead><tr><th>시각</th><th>기온℃</th><th>이슬점℃</th><th>습도%</th><th>강수</th><th>강수량mm</th><th>풍속m/s</th><th>하늘</th><th>자료</th></tr></thead>
       <tbody>${j.hours.map(h=>`<tr class="${h.T<=0?"frz":""} ${h.pty?"pr":""}">
         <td>${h.dt.slice(5)}</td><td>${h.T}</td><td>${h.Td??"-"}</td><td>${h.RH??"-"}</td><td>${h.pty_name||"-"}</td>
