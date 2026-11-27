@@ -48,6 +48,7 @@ jobs:
           echo "트리거=${{ github.event_name }}, source입력=${{ github.event.inputs.source }}, 수동실행=$IS_MANUAL"
 
       - name: 판정 + 카카오톡 알림
+        id: judge
         env:
           KMA_SERVICE_KEY: ${{ secrets.KMA_SERVICE_KEY }}
           KAKAO_REST_KEY: ${{ secrets.KAKAO_REST_KEY }}
@@ -57,8 +58,11 @@ jobs:
           ICING_IS_MANUAL: ${{ steps.ctx.outputs.is_manual }}
         run: node scripts/icing-notify.js
 
+      # steps.judge.outputs.ran: 감시 시간대 밖 자동 실행·같은 시(hour) 중복 실행처럼
+      # 판정 자체를 건너뛴 경우 icing-notify.js가 "false"로 적어둔다 — 그런 실행은
+      # 커밋할 것이 없으므로 이 단계 자체를 돌리지 않는다(always()여도 건너뜀 → 초록 유지).
       - name: 판정 기록·실황 캐시 커밋·push (master에만 — main에는 올리지 않음, 충돌 시 재시도)
-        if: always()
+        if: always() && steps.judge.outputs.ran == 'true'
         env:
           KAKAO_REST_KEY: ${{ secrets.KAKAO_REST_KEY }}
           KAKAO_CLIENT_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
@@ -66,7 +70,14 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/icing-log/ data/obs-cache/
+          ADD_PATHS=""
+          [ -d data/icing-log ] && ADD_PATHS="$ADD_PATHS data/icing-log/"
+          [ -d data/obs-cache ] && ADD_PATHS="$ADD_PATHS data/obs-cache/"
+          if [ -z "$ADD_PATHS" ]; then
+            echo "기록·캐시 경로가 생성되지 않음(기상청 조회 실패 등) — 커밋 건너뜀"
+            exit 0
+          fi
+          git add $ADD_PATHS
           if git diff --cached --quiet; then
             echo "변경 없음 — 커밋 건너뜀"
             exit 0
