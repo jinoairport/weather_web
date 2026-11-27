@@ -567,6 +567,38 @@ function appendIcingLog(res, isManual, alertKind, sent, nowDisplay) {
   fs.writeFileSync(file, JSON.stringify(log, null, 1), 'utf8');
 }
 
+/* 기상청 조회 실패(또는 목업·캐시된 옛 예보로만 응답되어 신뢰할 수 없는 경우) — 판정값 없이 기록만 남긴다.
+   target을 모르는 경우(icingRunJudge가 아예 예외를 던진 경우)도 있어 target을 별도로 받는다. */
+function appendFetchFailureLog(targetIso, reason, nowDisplay) {
+  const file = path.join(LOG_DIR, `${winterSeasonLabel(targetIso)}.json`);
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+  let log = [];
+  try { log = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { log = []; }
+  log.push({
+    executed_at: nowDisplay, is_manual: false, target: targetIso,
+    level: null, level_name: '조회 실패', reason,
+    sent: false, alert_kind: null,
+  });
+  fs.writeFileSync(file, JSON.stringify(log, null, 1), 'utf8');
+}
+
+/* 판정에 필요한 핵심 구간(대상일 전날 12시~당일 09시, 21시간)에서 빠진 시간 수 —
+   초단기실황 일부만 실패해도 이 구간이 너무 비면 신뢰할 수 없는 판정이 된다 */
+function countCriticalMissingHours(icing, res) {
+  const [ty, tm, td] = res.target.split('-').map(Number);
+  const d0 = icing.icingKstMs(ty, tm - 1, td, 0, 0);
+  const H = 3600000;
+  const present = new Set((res.hours || []).map(h => {
+    const m = h.dt.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/);
+    return m ? icing.icingKstMs(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) : null;
+  }));
+  let missing = 0;
+  for (let ms = d0 - 12 * H; ms < d0 + 9 * H; ms += H) {
+    if (!present.has(ms)) missing++;
+  }
+  return missing;
+}
+
 /* ===================== 8. 카카오 토큰 갱신 + 시크릿 반영 =====================
    공개 로그 — 토큰 값은 마스킹해도 절대 출력하지 않는다. 성공/실패와
    로테이션 발생 여부만 남긴다. */
@@ -779,7 +811,8 @@ async function main() {
     res = await icing.icingRunJudge(target);
   } catch (e) {
     console.log('판정 단계: (기상청 자료 조회 실패)');
-    await sendAnomalyAlert(kakaoRestKey, kakaoClientSecret, kakaoRefreshToken, `기상청 자료 조회 실패: ${e.message}`, nowDisplay);
+    appendFetchFailureLog(targetIso, `조회 실패: ${e.message}`, nowDisplay);
+    await sendAnomalyAlert(kakaoRestKey, kakaoClientSecret, kakaoRefreshToken, '기상청 조회 실패', nowDisplay);
     try {
       saveObsCacheFile(pruneObsCache(JSON.parse(icing.__store.icing_obs_cache || '{}'), nowMs));
     } catch (e2) { /* 캐시 저장 실패는 치명적이지 않음 */ }
@@ -789,6 +822,21 @@ async function main() {
   try {
     saveObsCacheFile(pruneObsCache(JSON.parse(icing.__store.icing_obs_cache || '{}'), nowMs));
   } catch (e) { console.log('실황 캐시 저장 실패(치명적이지 않음):', e.message); }
+
+  // 목업·캐시된 옛 예보(stale) 등 "실제 기상청 응답"이 아니거나, 핵심 구간(전날 12시~당일 09시) 자료가
+  // 3시간 넘게 비면 — 그 값으로 판정·알림을 보내지 않는다. 이상 감지 알림만 보내고 실행은 실패 처리한다.
+  const stale = !res.is_real || String(res.base || '').startsWith('⚠');
+  const criticalMissing = countCriticalMissingHours(icing, res);
+  if (stale || criticalMissing >= 3) {
+    const reason = stale
+      ? `목업·옛 예보 응답(base=${res.base})`
+      : `핵심 구간 ${criticalMissing}시간 누락`;
+    console.log(`판정 단계: (기상청 조회 실패 — ${reason})`);
+    appendFetchFailureLog(targetIso, reason, nowDisplay);
+    await sendAnomalyAlert(kakaoRestKey, kakaoClientSecret, kakaoRefreshToken, '기상청 조회 실패', nowDisplay);
+    fail(`기상청 조회 실패 — ${reason}`);
+    return;
+  }
 
   console.log(`판정 단계: ${res.level_name}`);
 
